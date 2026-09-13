@@ -1,8 +1,11 @@
 # Unreleased
 
+- 🚨 **BREAKING:** `volta install <package>` no longer installs arbitrary JavaScript CLI packages; use `volta tool install <package>` instead
+- Add `volta tool install`, `uninstall`, `list`, `which`, and `run`
+- Isolate every installed CLI tool's dependency graph while deduplicating immutable package contents in a Volta-owned content-addressed store
+- Preserve project-local executable precedence and compatibility resolution for packages installed with the legacy Volta layout
 - Enable first-class pnpm support without `VOLTA_FEATURE_PNPM`
 - Pass npm, pnpm, and Yarn global package commands through to the selected package manager
-- Remove the deprecated `volta install <package>` workflow
 
 # Version 2.0.3
 

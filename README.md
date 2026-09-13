@@ -25,7 +25,7 @@
 
 **Reliable:** Ensure everyone in your project has the same tools—without interfering with their workflow.
 
-**Focused:** Volta selects Node and package-manager versions while each package manager owns its global packages.
+**Focused:** Volta manages runtimes, package managers, and isolated environments for JavaScript CLI tools.
 
 ## Features
 
@@ -76,16 +76,35 @@ volta install node@lts pnpm@latest
 volta pin node@lts pnpm@latest
 ```
 
-Global package commands are passed through to the selected package manager.
-Install command-line tools with that package manager, for example:
+Install JavaScript command-line tools with `volta tool install`. Each tool gets
+its own dependency environment while identical package contents are reused from
+Volta's shared content-addressed store:
 
 ```bash
-pnpm add --global @openai/codex
+volta tool install eslint
+volta tool install prettier@3
+volta tool install @openai/codex
 ```
 
-The deprecated `volta install <package>` workflow has been removed. Existing
-Volta-managed packages can still be executed and removed with `volta uninstall`
-while they are migrated manually to the preferred package manager.
+Manage and run those tools with:
+
+```bash
+volta tool list
+volta tool which eslint
+volta tool run eslint -- --fix .
+volta tool uninstall eslint
+```
+
+The Node runtime selected when a tool is installed is persisted with its
+environment. A current project's pinned runtime is selected first; otherwise
+Volta uses the default runtime. Tool execution never falls back to an arbitrary
+`node` from `PATH`, and a project-local executable continues to take precedence
+over an installed global tool.
+
+The deprecated `volta install <package>` workflow has been replaced by
+`volta tool install <package>`. Existing packages from the legacy Volta layout
+are not modified automatically: they can still be executed and removed with
+`volta uninstall` while they are migrated explicitly.
 
 ## Contributing to Volta
 
