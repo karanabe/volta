@@ -78,13 +78,15 @@ fn unpack_archive(archive: Box<dyn Archive>, version: &Version) -> Fallible<()> 
         })?;
 
     let bin_path = temp.path().join("package").join("bin");
-    write_launcher(&bin_path, "pnpm")?;
-    write_launcher(&bin_path, "pnpx")?;
+    let pnpm_entrypoint = launcher_entrypoint(&bin_path, "pnpm")?;
+    let pnpx_entrypoint = launcher_entrypoint(&bin_path, "pnpx")?;
+    write_launcher(&bin_path, "pnpm", &pnpm_entrypoint)?;
+    write_launcher(&bin_path, "pnpx", &pnpx_entrypoint)?;
 
     #[cfg(windows)]
     {
-        write_cmd_launcher(&bin_path, "pnpm")?;
-        write_cmd_launcher(&bin_path, "pnpx")?;
+        write_cmd_launcher(&bin_path, "pnpm", &pnpm_entrypoint)?;
+        write_cmd_launcher(&bin_path, "pnpx", &pnpx_entrypoint)?;
     }
 
     let dest = volta_home()?.pnpm_image_dir(&version_string);
@@ -146,8 +148,22 @@ fn fetch_remote_distro(
     ))
 }
 
+/// Find the JavaScript entry point shipped by the pnpm package.
+///
+/// pnpm 12 changed these files from CommonJS (`.cjs`) to ECMAScript modules (`.mjs`).
+fn launcher_entrypoint(base_path: &Path, tool: &str) -> Fallible<String> {
+    for extension in ["cjs", "mjs"] {
+        let entrypoint = format!("{}.{}", tool, extension);
+        if base_path.join(&entrypoint).is_file() {
+            return Ok(entrypoint);
+        }
+    }
+
+    Err(ErrorKind::WriteLauncherError { tool: tool.into() }.into())
+}
+
 /// Create executable launchers for the pnpm and pnpx binaries
-fn write_launcher(base_path: &Path, tool: &str) -> Fallible<()> {
+fn write_launcher(base_path: &Path, tool: &str, entrypoint: &str) -> Fallible<()> {
     let path = base_path.join(tool);
     write(
         &path,
@@ -161,9 +177,9 @@ case `uname` in
     *CYGWIN*) basedir=`cygpath -w "$basedir"`;;
 esac
 
-node "$basedir/{}.cjs" "$@"
+node "$basedir/{}" "$@"
 "#,
-            tool
+            entrypoint
         ),
     )
     .and_then(|_| set_executable(&path))
@@ -172,10 +188,44 @@ node "$basedir/{}.cjs" "$@"
 
 /// Create CMD executable launchers for the pnpm and pnpx binaries for Windows
 #[cfg(windows)]
-fn write_cmd_launcher(base_path: &Path, tool: &str) -> Fallible<()> {
+fn write_cmd_launcher(base_path: &Path, tool: &str, entrypoint: &str) -> Fallible<()> {
     write(
         base_path.join(format!("{}.cmd", tool)),
-        format!("@echo off\nnode \"%~dp0\\{}.cjs\" %*", tool),
+        format!("@echo off\nnode \"%~dp0\\{}\" %*", entrypoint),
     )
     .with_context(|| ErrorKind::WriteLauncherError { tool: tool.into() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launcher_entrypoint_supports_commonjs() {
+        let temp = tempfile::tempdir().unwrap();
+        File::create(temp.path().join("pnpm.cjs")).unwrap();
+
+        assert_eq!(
+            launcher_entrypoint(temp.path(), "pnpm").unwrap(),
+            "pnpm.cjs"
+        );
+    }
+
+    #[test]
+    fn launcher_entrypoint_supports_es_modules() {
+        let temp = tempfile::tempdir().unwrap();
+        File::create(temp.path().join("pnpm.mjs")).unwrap();
+
+        assert_eq!(
+            launcher_entrypoint(temp.path(), "pnpm").unwrap(),
+            "pnpm.mjs"
+        );
+    }
+
+    #[test]
+    fn launcher_entrypoint_rejects_unknown_layouts() {
+        let temp = tempfile::tempdir().unwrap();
+
+        assert!(launcher_entrypoint(temp.path(), "pnpm").is_err());
+    }
 }
