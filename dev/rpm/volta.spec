@@ -4,8 +4,8 @@ Release:        1%{?dist}
 Summary:        The JavaScript Launcher ⚡
 
 License:        BSD 2-CLAUSE
-URL:            https://%{name}.sh
-Source0:        https://github.com/volta-cli/volta/archive/v%{version}.tar.gz
+URL:            https://github.com/karanabe/volta
+Source0:        https://github.com/karanabe/volta/archive/v%{version}.tar.gz
 
 # cargo is required, but installing from RPM is failing with libcrypto dep error
 # so you will have to install cargo manually to build this

@@ -10,7 +10,7 @@ use textwrap::{fill, indent};
 const REPORT_BUG_CTA: &str =
     "Please rerun the command that triggered this error with the environment
 variable `VOLTA_LOGLEVEL` set to `debug` and open an issue at
-https://github.com/volta-cli/volta/issues with the details!";
+https://github.com/karanabe/volta/issues with the details!";
 
 const PERMISSIONS_CTA: &str = "Please ensure you have correct permissions to the Volta directory.";
 

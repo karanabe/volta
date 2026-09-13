@@ -5,8 +5,16 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
-name: Production
+name: Release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   linux:
@@ -16,9 +24,9 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
       - name: Set up docker buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
       - name: Build docker image
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v6
         with:
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -27,7 +35,7 @@ jobs:
           load: true
           tags: volta
       - name: Compile and package Volta
-        run: docker run --volume ${PWD}:/root/workspace --workdir /root/workspace --rm --init --tty volta /root/workspace/ci/build-linux.sh volta-linux
+        run: docker run --volume "${PWD}:/root/workspace" --workdir /root/workspace --rm --init volta /root/workspace/ci/build-linux.sh volta-linux
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
@@ -135,21 +143,32 @@ jobs:
   release:
     name: Publish release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs:
       - linux
       - linux-arm
       - macos
       - windows
       - windows-arm
-    if: github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-      - name: Determine release version
+      - name: Validate release version
         id: release_info
         env:
-          TAG: ${{ github.ref }}
-        run: echo "version=${TAG:11}" >> $GITHUB_OUTPUT
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          package_version="$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -1)"
+          if [ "$TAG" != "v$package_version" ]; then
+            echo "Tag $TAG does not match Cargo.toml version $package_version" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Fetch Linux artifact
         uses: actions/download-artifact@v4
         with:
@@ -185,86 +204,40 @@ jobs:
         with:
           name: windows-zip-arm
           path: release
-      - name: Show release artifacts
-        run: ls -la release
-      - name: Create draft release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Prepare release assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: ${{ github.ref }}
-          draft: true
-      - name: Upload Linux artifact
-        uses: actions/upload-release-asset@v1
+          VERSION: ${{ steps.release_info.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          cp release/volta-linux.tar.gz "dist/volta-$VERSION-linux.tar.gz"
+          cp release/volta-linux-arm.tar.gz "dist/volta-$VERSION-linux-arm.tar.gz"
+          cp release/volta-macos.tar.gz "dist/volta-$VERSION-macos.tar.gz"
+          cp release/volta-windows.msi "dist/volta-$VERSION-windows-x86_64.msi"
+          cp release/volta-windows.zip "dist/volta-$VERSION-windows.zip"
+          cp release/volta-windows-arm.msi "dist/volta-$VERSION-windows-arm64.msi"
+          cp release/volta-windows-arm.zip "dist/volta-$VERSION-windows-arm64.zip"
+
+          cp release/volta-windows.msi dist/volta-windows-x86_64.msi
+          cp release/volta-windows-arm.msi dist/volta-windows-arm64.msi
+          cp ci/volta.manifest dist/volta.manifest
+          cp dev/unix/volta-install.sh dist/volta-install.sh
+          printf '%s\n' "$VERSION" > dist/latest-version
+
+          cd dist
+          sha256sum volta-*.tar.gz volta-*.msi volta-*.zip > SHA256SUMS
+          ls -la
+      - name: Publish GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-linux.tar.gz
-          asset_name: volta-${{ steps.release_info.outputs.version }}-linux.tar.gz
-          asset_content_type: application/gzip
-      - name: Upload Linux ARM artifact
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-linux-arm.tar.gz
-          asset_name: volta-${{ steps.release_info.outputs.version }}-linux-arm.tar.gz
-          asset_content_type: application/gzip
-      - name: Upload MacOS artifact
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-macos.tar.gz
-          asset_name: volta-${{ steps.release_info.outputs.version }}-macos.tar.gz
-          asset_content_type: application/gzip
-      - name: Upload Windows installer
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-windows.msi
-          asset_name: volta-${{ steps.release_info.outputs.version }}-windows-x86_64.msi
-          asset_content_type: application/x-msi
-      - name: Upload Windows zip
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-windows.zip
-          asset_name: volta-${{ steps.release_info.outputs.version }}-windows.zip
-          asset_content_type: application/zip
-      - name: Upload Windows ARM installer
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-windows-arm.msi
-          asset_name: volta-${{ steps.release_info.outputs.version }}-windows-arm64.msi
-          asset_content_type: application/x-msi
-      - name: Upload Windows ARM zip
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-windows-arm.zip
-          asset_name: volta-${{ steps.release_info.outputs.version }}-windows-arm64.zip
-          asset_content_type: application/zip
-      - name: Upload manifest file
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./ci/volta.manifest
-          asset_name: volta.manifest
-          asset_content_type: text/plain
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release_info.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --draft=false --latest
+          else
+            gh release create "$TAG" dist/* --verify-tag --generate-notes \
+              --title "$TAG" --latest
+          fi

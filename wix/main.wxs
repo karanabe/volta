@@ -210,7 +210,7 @@
         <Icon Id='ProductICO' SourceFile='wix\volta.ico'/>
         <Property Id='ARPPRODUCTICON' Value='ProductICO' />
 
-        <Property Id='ARPHELPLINK' Value='https://github.com/volta-cli/volta'/>
+        <Property Id='ARPHELPLINK' Value='https://github.com/karanabe/volta'/>
         <Property Id='LicenseAccepted' Value='1'/>
 
         <UI>

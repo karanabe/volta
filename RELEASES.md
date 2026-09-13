@@ -1,3 +1,9 @@
+# Version 2.0.3
+
+- Continue development as a personal-use fork
+- Update Rust and Cargo dependencies
+- Publish checksummed release assets for fork-managed installation and updates
+
 # Version 2.0.2
 
 - Dependency updates

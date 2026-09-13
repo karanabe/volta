@@ -36,16 +36,41 @@
 - Stable tool installation—no reinstalling on every Node upgrade!
 - Extensibility hooks for site-specific customization
 
-## Installing Volta
+## Installing and updating this fork
 
-Read the [Getting Started Guide](https://docs.volta.sh/guide/getting-started) on our website for detailed instructions on how to install Volta.
+On Linux or macOS, download and run the installer published with the latest
+[GitHub Release](https://github.com/karanabe/volta/releases/latest):
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLO \
+  https://github.com/karanabe/volta/releases/latest/download/volta-install.sh
+bash volta-install.sh
+rm volta-install.sh
+```
+
+Run the same commands again to update an existing installation. To install a
+specific release, pass its version without the leading `v` when running the
+downloaded script, for example `bash volta-install.sh --version 2.0.3`.
+
+On Windows, download the latest
+[x86-64 MSI](https://github.com/karanabe/volta/releases/latest/download/volta-windows-x86_64.msi)
+or
+[ARM64 MSI](https://github.com/karanabe/volta/releases/latest/download/volta-windows-arm64.msi).
+
+The Unix installer verifies the selected archive against the `SHA256SUMS` file
+from the same release before extracting it. See the upstream
+[Getting Started Guide](https://docs.volta.sh/guide/getting-started) for shell
+setup and platform details that still apply to this fork.
 
 ## Using Volta
 
-Read the [Understanding Volta Guide](https://docs.volta.sh/guide/understanding) on our website for detailed instructions on how to use Volta.
+Read the upstream [Understanding Volta Guide](https://docs.volta.sh/guide/understanding)
+for detailed instructions on how to use Volta.
 
 ## Contributing to Volta
 
-Contributions are always welcome, no matter how large or small. Substantial feature ideas should be proposed as an [RFC](https://github.com/volta-cli/rfcs). Before contributing, please read the [code of conduct](CODE_OF_CONDUCT.md).
-
-See the [Contributing Guide](https://docs.volta.sh/contributing/) on our website for detailed instructions on how to contribute to Volta.
+Issues and pull requests are welcome, but this fork's priorities follow the
+maintainer's personal workflows. Before contributing, please read the
+[code of conduct](CODE_OF_CONDUCT.md). The upstream
+[Contributing Guide](https://docs.volta.sh/contributing/) remains useful for
+development setup and repository conventions.
