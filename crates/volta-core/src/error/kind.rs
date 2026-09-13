@@ -273,6 +273,17 @@ pub enum ErrorKind {
         package: String,
     },
 
+    /// Thrown when an immutable package-store entry does not match its address.
+    PackageStoreCorrupt {
+        content_hash: String,
+    },
+
+    /// Thrown when a package-store filesystem operation fails.
+    PackageStoreError {
+        path: PathBuf,
+        message: String,
+    },
+
     /// Thrown when parsing the package manifest fails
     PackageManifestParseError {
         package: String,
@@ -454,6 +465,34 @@ pub enum ErrorKind {
     /// Thrown when serializing a package config to JSON fails
     StringifyPackageConfigError,
 
+    /// Thrown when an installed tool environment is incomplete or inconsistent.
+    ToolEnvironmentCorrupt {
+        package: String,
+        reason: String,
+    },
+
+    /// Thrown when an npm package cannot be treated as a CLI tool.
+    ToolHasNoExecutables {
+        package: String,
+    },
+
+    /// Thrown when persisted isolated-tool metadata cannot be read or written.
+    ToolMetadataError {
+        operation: String,
+        path: PathBuf,
+    },
+
+    /// Thrown when an isolated package or command has not been installed.
+    ToolNotInstalled {
+        tool: String,
+    },
+
+    /// Thrown when a package selector cannot choose between multiple executables.
+    ToolRunAmbiguous {
+        package: String,
+        executables: Vec<String>,
+    },
+
     /// Thrown when serializing the platform to JSON fails
     StringifyPlatformError,
 
@@ -555,13 +594,13 @@ Please remove {} before installing {}",
                 f,
                 "Could not execute command.
 
-See `volta help install` and `volta help pin` for info about making tools available."
+See `volta help tool install`, `volta help install`, and `volta help pin` for info about making tools available."
             ),
             ErrorKind::BinaryNotFound { name } => write!(
                 f,
                 r#"Could not find executable "{}"
 
-Use `volta install` to add a package to your toolchain (see `volta help install` for more info)."#,
+Use `volta tool install` to add a JavaScript CLI tool (see `volta help tool install` for more info)."#,
                 name
             ),
             ErrorKind::BuildPathError => write!(
@@ -1015,8 +1054,22 @@ Please confirm the package is valid and run with `--verbose` for more diagnostic
                 f,
                 "The deprecated `volta install {0}` workflow has been removed.
 
-Use `pnpm add --global {0}` or the equivalent command for your package manager.",
+Use `volta tool install {0}` to install a JavaScript CLI tool.",
                 package
+            ),
+            ErrorKind::PackageStoreCorrupt { content_hash } => write!(
+                f,
+                "Package store entry '{}' failed integrity verification.
+
+Remove the damaged entry and reinstall the affected tool.",
+                content_hash
+            ),
+            ErrorKind::PackageStoreError { path, message } => write!(
+                f,
+                "Could not access the package store at {}
+
+{}",
+                path.display(), message
             ),
             ErrorKind::PackageManifestParseError { package } => write!(
                 f,
@@ -1325,6 +1378,49 @@ at {}
 {}",
                 REPORT_BUG_CTA
             ),
+            ErrorKind::ToolEnvironmentCorrupt { package, reason } => write!(
+                f,
+                "The installed environment for '{}' is incomplete or corrupt.
+
+{}
+
+Run `volta tool uninstall {0}` and then install it again.",
+                package, reason
+            ),
+            ErrorKind::ToolHasNoExecutables { package } => write!(
+                f,
+                "Package '{}' does not expose a command-line executable.
+
+Only packages with a valid `bin` entry can be installed with `volta tool install`.",
+                package
+            ),
+            ErrorKind::ToolMetadataError { operation, path } => write!(
+                f,
+                "Could not {} isolated tool metadata at {}.
+
+{}",
+                operation,
+                path.display(),
+                PERMISSIONS_CTA
+            ),
+            ErrorKind::ToolNotInstalled { tool } => write!(
+                f,
+                "No isolated tool or command named '{}' is installed.
+
+Use `volta tool install <package>` to install it.",
+                tool
+            ),
+            ErrorKind::ToolRunAmbiguous {
+                package,
+                executables,
+            } => write!(
+                f,
+                "Package '{}' exposes multiple executables: {}.
+
+Run `volta tool run <command>` with one of those executable names.",
+                package,
+                executables.join(", ")
+            ),
             ErrorKind::StringifyPlatformError => write!(
                 f,
                 "Could not serialize platform settings.
@@ -1530,6 +1626,8 @@ impl ErrorKind {
             ErrorKind::NpxNotAvailable { .. } => ExitCode::ExecutableNotFound,
             ErrorKind::PackageInstallFailed { .. } => ExitCode::UnknownError,
             ErrorKind::PackageInstallRemoved { .. } => ExitCode::InvalidArguments,
+            ErrorKind::PackageStoreCorrupt { .. } => ExitCode::ConfigurationError,
+            ErrorKind::PackageStoreError { .. } => ExitCode::FileSystemError,
             ErrorKind::PackageManifestParseError { .. } => ExitCode::ConfigurationError,
             ErrorKind::PackageManifestReadError { .. } => ExitCode::FileSystemError,
             ErrorKind::PackageNotFound { .. } => ExitCode::InvalidArguments,
@@ -1572,6 +1670,11 @@ impl ErrorKind {
             ErrorKind::ShimRemoveError { .. } => ExitCode::FileSystemError,
             ErrorKind::StringifyBinConfigError => ExitCode::UnknownError,
             ErrorKind::StringifyPackageConfigError => ExitCode::UnknownError,
+            ErrorKind::ToolEnvironmentCorrupt { .. } => ExitCode::ConfigurationError,
+            ErrorKind::ToolHasNoExecutables { .. } => ExitCode::InvalidArguments,
+            ErrorKind::ToolMetadataError { .. } => ExitCode::FileSystemError,
+            ErrorKind::ToolNotInstalled { .. } => ExitCode::ExecutableNotFound,
+            ErrorKind::ToolRunAmbiguous { .. } => ExitCode::InvalidArguments,
             ErrorKind::StringifyPlatformError => ExitCode::UnknownError,
             ErrorKind::Unimplemented { .. } => ExitCode::UnknownError,
             ErrorKind::UnpackArchiveError { .. } => ExitCode::UnknownError,

@@ -34,6 +34,14 @@ layout! {
                 "packages": default_package_dir {}
                 "platform.json": default_platform_file;
             }
+            "environments": tool_environments_dir {
+                "installed": installed_tool_environments_dir {}
+                "registry.json": tool_registry_file;
+            }
+        }
+        "store": store_dir {
+            "packages": package_store_dir {}
+            "tmp": package_store_temp_dir {}
         }
         "tmp": tmp_dir {}
         "hooks.json": default_hooks_file;
@@ -103,6 +111,25 @@ impl VoltaHome {
 
     pub fn shared_lib_dir(&self, library: &str) -> PathBuf {
         path_buf!(self.shared_lib_root.clone(), library)
+    }
+
+    /// Returns the root containing all installations for an isolated CLI tool.
+    pub fn tool_environment_dir(&self, package: &str) -> PathBuf {
+        path_buf!(self.installed_tool_environments_dir.clone(), package)
+    }
+
+    /// Returns one immutable, published installation of an isolated CLI tool.
+    pub fn tool_installation_dir(&self, package: &str, installation: &str) -> PathBuf {
+        path_buf!(
+            self.tool_environment_dir(package),
+            "installations",
+            installation
+        )
+    }
+
+    /// Returns a content-addressed package entry in Volta's package store.
+    pub fn package_store_entry(&self, content_hash: &str) -> PathBuf {
+        path_buf!(self.package_store_dir.clone(), content_hash)
     }
 }
 

@@ -10,9 +10,11 @@ use crate::version::VersionSpec;
 use cfg_if::cfg_if;
 use log::{debug, info};
 
+pub mod environment;
 pub mod node;
 pub mod npm;
 pub mod package;
+mod package_store;
 pub mod pnpm;
 mod registry;
 mod serial;
