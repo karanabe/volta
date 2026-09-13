@@ -554,7 +554,7 @@ impl SandboxBuilder {
             for bin_info in bin_infos.iter() {
                 cfg_if! {
                     if #[cfg(target_os = "windows")] {
-                        let bin_path = package_img_dir.join(format!("{}.cmd", &bin_info.name));
+                        let bin_path = package_img_dir.join(format!("{}.cmd", bin_info.name));
                     } else {
                         let bin_path = package_img_dir.join("bin").join(&bin_info.name);
                     }
@@ -573,7 +573,7 @@ impl SandboxBuilder {
             cfg_if! {
                 if #[cfg(target_os = "windows")] {
                     // in Windows, binaries have an extra file with an executable extension
-                    let win_bin_path = project_bin_dir.join(format!("{}.cmd", &bin_info.name));
+                    let win_bin_path = project_bin_dir.join(format!("{}.cmd", bin_info.name));
                     self.files.push(FileBuilder::new(win_bin_path, &bin_info.contents).make_executable());
                 }
             }
