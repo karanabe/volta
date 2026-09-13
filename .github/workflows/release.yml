@@ -14,9 +14,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Run test workflow
+    uses: ./.github/workflows/test.yml
+
   linux:
     name: Build - Linux
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - name: Check out code
         uses: actions/checkout@v6
@@ -26,7 +31,7 @@ jobs:
         with:
           tool: cross
       - name: Compile Volta
-        run: cross build --release --target x86_64-unknown-linux-gnu
+        run: cross build --locked --release --target x86_64-unknown-linux-gnu
       - name: Package Volta
         run: tar -zcvf "volta-linux.tar.gz" volta volta-shim volta-migrate
         working-directory: target/x86_64-unknown-linux-gnu/release
@@ -39,6 +44,7 @@ jobs:
   linux-arm:
     name: Build - Linux ARM
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - name: Check out code
         uses: actions/checkout@v6
@@ -47,7 +53,7 @@ jobs:
         with:
           tool: cross
       - name: Compile Volta
-        run: cross build --release --target aarch64-unknown-linux-gnu
+        run: cross build --locked --release --target aarch64-unknown-linux-gnu
       - name: Package Volta
         run: |
           cd target/aarch64-unknown-linux-gnu/release && tar -zcvf "volta-linux-arm.tar.gz" volta volta-shim volta-migrate
@@ -60,6 +66,7 @@ jobs:
   macos:
     name: Build - MacOS
     runs-on: macos-latest
+    needs: test
     steps:
       - name: Check out code
         uses: actions/checkout@v6
@@ -78,6 +85,7 @@ jobs:
   windows:
     name: Build - Windows
     runs-on: windows-latest
+    needs: test
     steps:
       - name: Check out code
         uses: actions/checkout@v6
@@ -89,7 +97,8 @@ jobs:
         run: cargo install --locked cargo-wix
       - name: Compile and package installer
         run: |
-          cargo wix --nocapture --package volta --output target\wix\volta-windows.msi
+          cargo build --locked --release --package volta
+          cargo wix --no-build --nocapture --package volta --target-bin-dir target\release --output target\wix\volta-windows.msi
       - name: Create zip of binaries
         run: powershell Compress-Archive volta*.exe volta-windows.zip
         working-directory: ./target/release
@@ -107,6 +116,7 @@ jobs:
   windows-arm:
     name: Build - Windows ARM
     runs-on: windows-latest
+    needs: test
     steps:
       - name: Check out code
         uses: actions/checkout@v6
@@ -119,7 +129,8 @@ jobs:
         run: cargo install --locked cargo-wix
       - name: Compile and package installer
         run: |
-          cargo wix --nocapture --package volta --target aarch64-pc-windows-msvc --output target\wix\volta-windows-arm.msi
+          cargo build --locked --release --package volta --target aarch64-pc-windows-msvc
+          cargo wix --no-build --nocapture --package volta --target aarch64-pc-windows-msvc --target-bin-dir target\aarch64-pc-windows-msvc\release --output target\wix\volta-windows-arm.msi
       - name: Create zip of binaries
         run: powershell Compress-Archive volta*.exe volta-windows-arm.zip
         working-directory: ./target/aarch64-pc-windows-msvc/release
@@ -140,6 +151,7 @@ jobs:
     permissions:
       contents: write
     needs:
+      - test
       - linux
       - linux-arm
       - macos

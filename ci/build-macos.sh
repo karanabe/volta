@@ -4,8 +4,8 @@ set -e
 
 echo "Building Volta"
 
-MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --release --target=aarch64-apple-darwin
-MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --release --target=x86_64-apple-darwin
+MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --locked --release --target=aarch64-apple-darwin
+MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --locked --release --target=x86_64-apple-darwin
 
 echo "Packaging Binaries"
 
