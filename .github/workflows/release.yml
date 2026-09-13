@@ -2,9 +2,6 @@ on:
   push:
     tags:
       - v*
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 name: Release
@@ -14,7 +11,7 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   linux:

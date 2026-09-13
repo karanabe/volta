@@ -8,7 +8,7 @@ edition = "2021"
 mock-network = ["mockito"]
 # The `cross-platform-docs` feature flag is used for generating API docs for
 # multiple platforms in one build.
-# See ci/publish-docs.yml for an example of how it's enabled.
+# See .github/workflows/api-docs.yml for an example of how it's enabled.
 # See volta-core::path for an example of where it's used.
 cross-platform-docs = []
 
