@@ -167,7 +167,11 @@ fn detect_and_migrate() -> Fallible<()> {
             MigrationState::V1(one) => MigrationState::V2(Box::new((*one).try_into()?)),
             MigrationState::V2(two) => MigrationState::V3(Box::new((*two).try_into()?)),
             MigrationState::V3(three) => MigrationState::V4(Box::new((*three).try_into()?)),
-            MigrationState::V4(_) => {
+            MigrationState::V4(current) => {
+                debug!(
+                    "Volta directory is already using the current layout at {}",
+                    current.home.root().display()
+                );
                 break;
             }
         };

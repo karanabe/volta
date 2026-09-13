@@ -214,7 +214,7 @@ pub fn process_error(
         Some(s) => status_to_string(s),
         None => "never executed".to_string(),
     };
-    let mut desc = format!("{} ({})", &msg, exit);
+    let mut desc = format!("{} ({})", msg, exit);
 
     if let Some(out) = output {
         match str::from_utf8(&out.stdout) {

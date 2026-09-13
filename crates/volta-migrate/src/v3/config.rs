@@ -11,7 +11,6 @@ pub struct LegacyPackageConfig {
     #[serde(with = "version_serde")]
     pub version: Version,
     pub platform: LegacyPlatform,
-    pub bins: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]

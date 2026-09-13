@@ -140,7 +140,7 @@ pub fn validate(name: &str) -> Validity {
 
     if name
         .split('/')
-        .last()
+        .next_back()
         .map(|final_part| SPECIAL_CHARS.is_match(final_part))
         .unwrap_or(false)
     {

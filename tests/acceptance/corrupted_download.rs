@@ -15,12 +15,10 @@ const NODE_VERSION_INFO: &str = r#"[
 const NODE_VERSION_FIXTURES: [DistroMetadata; 2] = [
     DistroMetadata {
         version: "0.0.1",
-        compressed_size: 10,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "10.99.1040",
-        compressed_size: 273,
         uncompressed_size: Some(0x0028_0000),
     },
 ];
@@ -39,12 +37,10 @@ const PNPM_VERSION_INFO: &str = r#"
 const PNPM_VERSION_FIXTURES: [DistroMetadata; 2] = [
     DistroMetadata {
         version: "0.0.1",
-        compressed_size: 10,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "7.7.1",
-        compressed_size: 518,
         uncompressed_size: Some(0x0028_0000),
     },
 ];
@@ -61,12 +57,10 @@ const YARN_1_VERSION_INFO: &str = r#"{
 const YARN_1_VERSION_FIXTURES: [DistroMetadata; 2] = [
     DistroMetadata {
         version: "0.0.1",
-        compressed_size: 10,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "1.2.42",
-        compressed_size: 174,
         uncompressed_size: Some(0x0028_0000),
     },
 ];

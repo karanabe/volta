@@ -164,7 +164,6 @@ pub trait DistroFixture: From<DistroMetadata> {
 #[derive(Clone)]
 pub struct DistroMetadata {
     pub version: &'static str,
-    pub compressed_size: u32,
     pub uncompressed_size: Option<u32>,
 }
 
@@ -856,6 +855,7 @@ impl Sandbox {
             .env("VOLTA_INSTALL_DIR", cargo_dir())
             .env("PATH", &self.path)
             .env("VOLTA_POSTSCRIPT", volta_postscript())
+            .env_remove("_VOLTA_TOOL_RECURSION")
             .env_remove("VOLTA_SHELL")
             .env_remove("MSYSTEM"); // assume cmd.exe everywhere on windows
 

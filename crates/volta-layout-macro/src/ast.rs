@@ -248,7 +248,7 @@ impl Parse for FieldPrefix {
 /// AST for the suffix of a field in a `layout!` struct declaration.
 enum FieldContents {
     /// A file field suffix, which consists of a single semicolon (`;`).
-    File(Token![;]),
+    File,
 
     /// A directory field suffix, which consists of a braced directory.
     Dir(Directory),
@@ -258,8 +258,8 @@ impl Parse for FieldContents {
     fn parse(input: ParseStream) -> parse::Result<Self> {
         let lookahead = input.lookahead1();
         Ok(if lookahead.peek(Token![;]) {
-            let semi = input.parse()?;
-            FieldContents::File(semi)
+            input.parse::<Token![;]>()?;
+            FieldContents::File
         } else {
             let directory = input.parse()?;
             FieldContents::Dir(directory)

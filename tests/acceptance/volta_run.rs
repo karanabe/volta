@@ -71,22 +71,18 @@ cfg_if::cfg_if! {
         const NODE_VERSION_FIXTURES: [DistroMetadata; 4] = [
             DistroMetadata {
                 version: "10.99.1040",
-                compressed_size: 273,
                 uncompressed_size: Some(0x0028_0000),
             },
             DistroMetadata {
                 version: "9.27.6",
-                compressed_size: 272,
                 uncompressed_size: Some(0x0028_0000),
             },
             DistroMetadata {
                 version: "8.9.10",
-                compressed_size: 272,
                 uncompressed_size: Some(0x0028_0000),
             },
             DistroMetadata {
                 version: "6.19.62",
-                compressed_size: 273,
                 uncompressed_size: Some(0x0028_0000),
             },
         ];
@@ -94,22 +90,18 @@ cfg_if::cfg_if! {
         const NODE_VERSION_FIXTURES: [DistroMetadata; 4] = [
             DistroMetadata {
                 version: "10.99.1040",
-                compressed_size: 273,
                 uncompressed_size: Some(0x0028_0000),
             },
             DistroMetadata {
                 version: "9.27.6",
-                compressed_size: 272,
                 uncompressed_size: Some(0x0028_0000),
             },
             DistroMetadata {
                 version: "8.9.10",
-                compressed_size: 270,
                 uncompressed_size: Some(0x0028_0000),
             },
             DistroMetadata {
                 version: "6.19.62",
-                compressed_size: 273,
                 uncompressed_size: Some(0x0028_0000),
             },
         ];
@@ -117,22 +109,18 @@ cfg_if::cfg_if! {
         const NODE_VERSION_FIXTURES: [DistroMetadata; 4] = [
             DistroMetadata {
                 version: "10.99.1040",
-                compressed_size: 1096,
                 uncompressed_size: None,
             },
             DistroMetadata {
                 version: "9.27.6",
-                compressed_size: 1068,
                 uncompressed_size: None,
             },
             DistroMetadata {
                 version: "8.9.10",
-                compressed_size: 1055,
                 uncompressed_size: None,
             },
             DistroMetadata {
                 version: "6.19.62",
-                compressed_size: 1056,
                 uncompressed_size: None,
             },
         ];
@@ -155,12 +143,10 @@ const PNPM_VERSION_INFO: &str = r#"
 const PNPM_VERSION_FIXTURES: [DistroMetadata; 2] = [
     DistroMetadata {
         version: "6.34.0",
-        compressed_size: 500,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "7.7.1",
-        compressed_size: 518,
         uncompressed_size: Some(0x0028_0000),
     },
 ];
@@ -179,22 +165,18 @@ const YARN_1_VERSION_INFO: &str = r#"{
 const YARN_1_VERSION_FIXTURES: [DistroMetadata; 4] = [
     DistroMetadata {
         version: "1.12.99",
-        compressed_size: 178,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "1.7.71",
-        compressed_size: 176,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "1.4.159",
-        compressed_size: 177,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "1.2.42",
-        compressed_size: 174,
         uncompressed_size: Some(0x0028_0000),
     },
 ];
@@ -213,22 +195,18 @@ const YARN_BERRY_VERSION_INFO: &str = r#"{
 const YARN_BERRY_VERSION_FIXTURES: [DistroMetadata; 4] = [
     DistroMetadata {
         version: "2.4.159",
-        compressed_size: 177,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "3.12.99",
-        compressed_size: 178,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "3.7.71",
-        compressed_size: 176,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "3.2.42",
-        compressed_size: 174,
         uncompressed_size: Some(0x0028_0000),
     },
 ];
@@ -236,17 +214,14 @@ const YARN_BERRY_VERSION_FIXTURES: [DistroMetadata; 4] = [
 const NPM_VERSION_FIXTURES: [DistroMetadata; 3] = [
     DistroMetadata {
         version: "1.2.3",
-        compressed_size: 239,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "4.5.6",
-        compressed_size: 239,
         uncompressed_size: Some(0x0028_0000),
     },
     DistroMetadata {
         version: "8.1.5",
-        compressed_size: 239,
         uncompressed_size: Some(0x0028_0000),
     },
 ];

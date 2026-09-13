@@ -177,7 +177,7 @@ impl<'a> CommandArg<'a> {
                             }))
                         }
                         // `update`
-                        Some(cmd) if PNPM_UPDATE_ALIASES.iter().any(|&a| a == cmd) => {
+                        Some(cmd) if PNPM_UPDATE_ALIASES.contains(&cmd) => {
                             let manager = PackageManager::Pnpm;
                             let mut common_args = vec![subcommand];
                             common_args.extend(flags);
@@ -188,13 +188,13 @@ impl<'a> CommandArg<'a> {
                             }))
                         }
                         // `remove`
-                        Some(cmd) if PNPM_UNINSTALL_ALIASES.iter().any(|&a| a == cmd) => {
+                        Some(cmd) if PNPM_UNINSTALL_ALIASES.contains(&cmd) => {
                             CommandArg::Global(GlobalCommand::Uninstall(UninstallArgs {
                                 tools: tools.to_vec(),
                             }))
                         }
                         // `link`
-                        Some(cmd) if PNPM_LINK_ALIASES.iter().any(|&a| a == cmd) => {
+                        Some(cmd) if PNPM_LINK_ALIASES.contains(&cmd) => {
                             let mut common_args = vec![subcommand];
                             common_args.extend(flags);
                             CommandArg::Intercepted(InterceptedCommand::Link(LinkArgs {

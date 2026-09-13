@@ -14,7 +14,7 @@ thread_local!(static TASK_ID: usize = NEXT_ID.fetch_add(1, Ordering::SeqCst));
 // initializes the root and home directories for the current task
 fn init() {
     static GLOBAL_INIT: Once = Once::new();
-    thread_local!(static LOCAL_INIT: Cell<bool> = Cell::new(false));
+    thread_local!(static LOCAL_INIT: Cell<bool> = const { Cell::new(false) });
     GLOBAL_INIT.call_once(|| {
         global_root().mkdir_p();
     });

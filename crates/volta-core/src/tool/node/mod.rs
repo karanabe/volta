@@ -236,7 +236,7 @@ impl Tool for Node {
       To use the version included with Node, run `volta install npm@bundled`",
                     note_prefix(),
                     tool_version("npm", node_version.npm),
-                    default_npm.to_string()
+                    default_npm
                 );
             }
         } else {
@@ -270,7 +270,7 @@ impl Tool for Node {
       To use the version included with Node, run `volta pin npm@bundled`",
                         note_prefix(),
                         tool_version("npm", node_version.npm),
-                        pinned_npm.to_string()
+                        pinned_npm
                     );
                 }
             } else {

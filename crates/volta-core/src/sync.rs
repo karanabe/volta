@@ -78,6 +78,7 @@ impl VoltaLock {
                 let file = OpenOptions::new()
                     .write(true)
                     .create(true)
+                    .truncate(false)
                     .open(path)
                     .with_context(|| ErrorKind::LockAcquireError)?;
                 // First we try to lock the file without blocking. If that fails, then we show a spinner
