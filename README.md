@@ -1,24 +1,22 @@
-<p align="center">
-  <a href="https://www.volta.sh/">
-    <img alt="Volta" src="./volta.png?raw=true" width="360">
-  </a>
-</p>
+# Volta
 
 <p align="center">
   The Hassle-Free JavaScript Tool Manager
 </p>
 
 <p align="center">
-  <img alt="Production Build Status" src="https://github.com/volta-cli/volta/workflows/Production/badge.svg" />
-  <a href="https://github.com/volta-cli/volta/actions?query=workflow%3ATest">
-    <img alt="Test Status" src="https://github.com/volta-cli/volta/workflows/Test/badge.svg" />
+  <a href="https://github.com/karanabe/volta/actions/workflows/release.yml">
+    <img alt="Production Build Status" src="https://github.com/karanabe/volta/actions/workflows/release.yml/badge.svg" />
   </a>
 </p>
 
 ---
 
 > [!IMPORTANT]
-> **Volta is unmaintained.** Everything that works today should continue to do so for the foreseeable future, so if it is working for you, there is no particular *urgency* to migrate to another tool, but we will not be able to address breakages from new OS releases or other changes in the ecosystem, so you should put it on your maintenance roadmap at some point. We recommend migrating to [`mise`](https://mise.jdx.dev/). See [issue #2080](https://github.com/volta-cli/volta/issues/2080).
+> **This fork continues development for personal use.** The upstream
+> [`volta-cli/volta`](https://github.com/volta-cli/volta) project is no longer
+> maintained. This fork is kept current for the maintainer's personal workflows;
+> compatibility and support for other environments are not guaranteed.
 
 ---
 
@@ -51,24 +49,3 @@ Read the [Understanding Volta Guide](https://docs.volta.sh/guide/understanding) 
 Contributions are always welcome, no matter how large or small. Substantial feature ideas should be proposed as an [RFC](https://github.com/volta-cli/rfcs). Before contributing, please read the [code of conduct](CODE_OF_CONDUCT.md).
 
 See the [Contributing Guide](https://docs.volta.sh/contributing/) on our website for detailed instructions on how to contribute to Volta.
-
-## Who is using Volta?
-
-<table>
-  <tbody>
-    <tr>
-      <td align="center">
-        <a href="https://github.com/microsoft/TypeScript" target="_blank">
-          <img src="https://raw.githubusercontent.com/microsoft/TypeScript-Website/v2/packages/typescriptlang-org/static/branding/ts-logo-512.svg" alt="TypeScript" width="100" height="100">
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://github.com/getsentry/sentry-javascript" target="_blank">
-          <img src="https://avatars.githubusercontent.com/u/1396951?s=100" alt="Sentry" width="100" height="100">
-        </a>
-      </td>
-    </tr>
-  </tbody>
-</table>
-
-See [here](https://sourcegraph.com/search?q=context:global+%22volta%22+file:package.json&patternType=literal) for more Volta users.
