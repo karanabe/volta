@@ -1,8 +1,12 @@
 # Unreleased
 
 - 🚨 **BREAKING:** `volta install <package>` no longer installs arbitrary JavaScript CLI packages; use `volta tool install <package>` instead
-- Add `volta tool install`, `uninstall`, `list`, `which`, and `run`
-- Isolate every installed CLI tool's dependency graph while deduplicating immutable package contents in a Volta-owned content-addressed store
+- Add `volta tool install`, `upgrade`, `uninstall`, `list`, `which`, and `run`
+- 🚨 **BREAKING:** Use pnpm exclusively to materialize isolated tool environments; schema-v1 npm environments are not supported
+- Support pnpm 12 by passing linker settings through pnpm configuration instead of removed CLI flags
+- Store an exact Node reference, exact pnpm installer version, pnpm lockfile integrity, and build permissions in every schema-v2 tool receipt
+- Add `--node` and repeatable `--allow-build` options to `volta tool install`, plus `--node` and `--all` to `volta tool upgrade`
+- Implement inventory removal for Node, npm, pnpm, and Yarn; referenced Node versions require `--force`, which leaves affected tools visibly broken
 - Preserve project-local executable precedence and compatibility resolution for packages installed with the legacy Volta layout
 - Enable first-class pnpm support without `VOLTA_FEATURE_PNPM`
 - Pass npm, pnpm, and Yarn global package commands through to the selected package manager

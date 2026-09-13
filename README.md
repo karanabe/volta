@@ -76,15 +76,22 @@ volta install node@lts pnpm@latest
 volta pin node@lts pnpm@latest
 ```
 
-Install JavaScript command-line tools with `volta tool install`. Each tool gets
-its own dependency environment while identical package contents are reused from
-Volta's shared content-addressed store:
+Install JavaScript command-line tools with `volta tool install`. pnpm is the
+default and only environment backend: pnpm owns its linked `node_modules`,
+lockfile, and shared content-addressed store, while Volta records the exact
+Node and pnpm versions used to create the environment:
 
 ```bash
 volta tool install eslint
 volta tool install prettier@3
 volta tool install @openai/codex
+volta tool install esbuild --node lts --allow-build esbuild
 ```
+
+Installing Node does not set a default pnpm because pnpm is not bundled with
+Node. `volta tool install` resolves and fetches its own exact pnpm backend
+automatically, so `volta install pnpm` is not a prerequisite. Install pnpm
+separately only when you also want to invoke `pnpm` directly.
 
 Manage and run those tools with:
 
@@ -92,19 +99,31 @@ Manage and run those tools with:
 volta tool list
 volta tool which eslint
 volta tool run eslint -- --fix .
+volta tool upgrade eslint
+volta tool upgrade --all
 volta tool uninstall eslint
 ```
 
-The Node runtime selected when a tool is installed is persisted with its
-environment. A current project's pinned runtime is selected first; otherwise
-Volta uses the default runtime. Tool execution never falls back to an arbitrary
-`node` from `PATH`, and a project-local executable continues to take precedence
-over an installed global tool.
+The global default Node runtime is persisted with each new tool environment;
+the current project's pin does not affect installation. Use `--node <version>`
+to override it. Tool execution never falls back to an arbitrary `node` from
+`PATH`, and a project-local executable continues to take precedence over an
+installed global tool. Upgrade reuses the recorded package request, build
+permissions, and exact pnpm installer, unless `--node` changes the runtime.
+An unversioned request or range can advance to a newer matching package;
+an exact request is reproducibly rebuilt at that exact version.
+
+`volta uninstall node|npm|pnpm|yarn` removes the active default; an exact
+version such as `volta uninstall node@22.20.0` removes that inventory entry.
+Ranges and tags are rejected for removal. Node removal is blocked while tool
+receipts reference it. `--force` overrides the check and leaves those tools
+visibly broken until they are upgraded or reinstalled. npm bundled with Node
+cannot be removed separately. Removing pnpm does not break installed tools;
+their recorded pnpm version is fetched again if a later upgrade needs it.
 
 The deprecated `volta install <package>` workflow has been replaced by
-`volta tool install <package>`. Existing packages from the legacy Volta layout
-are not modified automatically: they can still be executed and removed with
-`volta uninstall` while they are migrated explicitly.
+`volta tool install <package>`. Volta 3 uses tool receipt schema v2 and does not
+load the npm-backed isolated environments created by pre-release schema v1.
 
 ## Contributing to Volta
 
