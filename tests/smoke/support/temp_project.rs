@@ -128,10 +128,13 @@ impl TempProjectBuilder {
         default_hooks_file(self.root()).rm();
         default_platform_file(self.root()).rm();
 
-        // create symlinks to shim executable for node, yarn, npm, and packages
-        ok_or_panic!(symlink_file(shim_exe(), self.root.node_exe()));
-        ok_or_panic!(symlink_file(shim_exe(), self.root.yarn_exe()));
-        ok_or_panic!(symlink_file(shim_exe(), self.root.npm_exe()));
+        // Create the platform shims exercised by the real-network smoke tests.
+        for binary in ["node", "npm", "npx", "yarn", "yarnpkg", "pnpm"] {
+            ok_or_panic!(symlink_file(
+                shim_exe(),
+                shim_file(binary, self.root.root())
+            ));
+        }
 
         // write files
         for file_builder in self.files {
@@ -289,6 +292,8 @@ impl TempProject {
             .env("VOLTA_HOME", volta_home(self.root()))
             .env("VOLTA_INSTALL_DIR", cargo_dir())
             .env_remove("VOLTA_NODE_VERSION")
+            .env_remove("_VOLTA_TOOL_RECURSION")
+            .env_remove("VOLTA_SHELL")
             .env_remove("MSYSTEM"); // assume cmd.exe everywhere on windows
 
         // overrides for env vars
@@ -304,14 +309,14 @@ impl TempProject {
     /// Example:
     ///     assert_that(p.volta("use node 9.5"), execs());
     pub fn volta(&self, cmd: &str) -> ProcessBuilder {
-        let mut p = self.process(&volta_exe());
+        let mut p = self.process(volta_exe());
         split_and_add_args(&mut p, cmd);
         p
     }
 
     /// Create a `ProcessBuilder` to run Node.
     pub fn node(&self, cmd: &str) -> ProcessBuilder {
-        let mut p = self.process(&self.node_exe());
+        let mut p = self.process(self.node_exe());
         split_and_add_args(&mut p, cmd);
         p
     }
@@ -322,7 +327,7 @@ impl TempProject {
 
     /// Create a `ProcessBuilder` to run Yarn.
     pub fn yarn(&self, cmd: &str) -> ProcessBuilder {
-        let mut p = self.process(&self.yarn_exe());
+        let mut p = self.process(self.yarn_exe());
         split_and_add_args(&mut p, cmd);
         p
     }
@@ -333,7 +338,7 @@ impl TempProject {
 
     /// Create a `ProcessBuilder` to run Npm.
     pub fn npm(&self, cmd: &str) -> ProcessBuilder {
-        let mut p = self.process(&self.npm_exe());
+        let mut p = self.process(self.npm_exe());
         split_and_add_args(&mut p, cmd);
         p
     }
@@ -364,7 +369,7 @@ impl TempProject {
     }
 
     /// Verify that the input Node version has been installed.
-    pub fn assert_node_version_is_installed(&self, version: &str) -> () {
+    pub fn assert_node_version_is_installed(&self, version: &str) {
         let default_platform = default_platform_file(self.root());
         let platform_contents = read_file_to_string(default_platform);
         let json_contents: serde_json::Value =
@@ -386,7 +391,7 @@ impl TempProject {
     }
 
     /// Verify that the input Yarn version has been installed.
-    pub fn assert_yarn_version_is_installed(&self, version: &str) -> () {
+    pub fn assert_yarn_version_is_installed(&self, version: &str) {
         let default_platform = default_platform_file(self.root());
         let platform_contents = read_file_to_string(default_platform);
         let json_contents: serde_json::Value =
@@ -407,7 +412,7 @@ impl TempProject {
     }
 
     /// Verify that the input Npm version has been installed.
-    pub fn assert_npm_version_is_installed(&self, version: &str) -> () {
+    pub fn assert_npm_version_is_installed(&self, version: &str) {
         let default_platform = default_platform_file(self.root());
         let platform_contents = read_file_to_string(default_platform);
         let json_contents: serde_json::Value =
