@@ -55,6 +55,7 @@ pub enum ToolKind {
     Pnpm,
     Yarn,
     ProjectLocalBinary(String),
+    ToolEnvironment(String),
     DefaultBinary(String),
     Bypass(String),
 }
@@ -116,6 +117,9 @@ impl ToolCommand {
             }
             ToolKind::ProjectLocalBinary(bin) => {
                 super::binary::local_execution_context(bin, self.platform, session)?
+            }
+            ToolKind::ToolEnvironment(bin) => {
+                super::binary::default_execution_context(bin, self.platform, session)?
             }
             ToolKind::Bypass(command) => (System::path()?, ErrorKind::BypassError { command }),
         };

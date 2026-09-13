@@ -229,7 +229,7 @@ fn install_third_party_package_reports_removed_workflow() {
             .with_stderr_contains(
                 "[..]deprecated `volta install typescript@latest` workflow has been removed[..]",
             )
-            .with_stderr_contains("[..]pnpm add --global typescript@latest[..]")
+            .with_stderr_contains("[..]volta tool install typescript@latest[..]")
     );
 }
 

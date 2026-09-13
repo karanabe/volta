@@ -11,6 +11,7 @@ use volta_core::style::{text_width, MAX_WIDTH};
     long_about = "The JavaScript Launcher ⚡
 
     To install a runtime or package manager, use `volta install`.
+    To install an isolated JavaScript CLI tool, use `volta tool install`.
     To pin your project's runtime or package manager, use `volta pin`.",
     color = ColorChoice::Auto,
     disable_version_flag = true,
@@ -69,6 +70,9 @@ pub(crate) enum Subcommand {
     /// Installs a runtime or package manager in your toolchain
     Install(command::Install),
 
+    /// Manages JavaScript CLI tools in isolated environments
+    Tool(command::Tool),
+
     /// Uninstalls a tool from your toolchain
     Uninstall(command::Uninstall),
 
@@ -108,6 +112,7 @@ impl Subcommand {
         match self {
             Subcommand::Fetch(fetch) => fetch.run(session),
             Subcommand::Install(install) => install.run(session),
+            Subcommand::Tool(tool) => tool.run(session),
             Subcommand::Uninstall(uninstall) => uninstall.run(session),
             Subcommand::Pin(pin) => pin.run(session),
             Subcommand::List(list) => list.run(session),

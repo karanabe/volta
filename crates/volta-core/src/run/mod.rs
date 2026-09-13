@@ -10,6 +10,8 @@ use crate::session::Session;
 use log::debug;
 use node_semver::Version;
 
+use self::executor::{ToolCommand, ToolKind};
+
 pub mod binary;
 mod executor;
 mod node;
@@ -62,6 +64,25 @@ where
     runner.envs(envs);
 
     runner.execute(session)
+}
+
+/// Execute a command from a persistent isolated tool environment.
+///
+/// Unlike ordinary shim dispatch, this selects the named installed package or
+/// command directly. Its persisted Node runtime is still used deterministically.
+pub fn execute_tool_environment(
+    selector: &str,
+    args: &[OsString],
+    session: &mut Session,
+) -> Fallible<ExitStatus> {
+    let resolved = crate::tool::environment::resolve_selector(selector)?;
+    ToolCommand::new(
+        resolved.path,
+        args,
+        Some(resolved.platform),
+        ToolKind::ToolEnvironment(resolved.command),
+    )
+    .execute(session)
 }
 
 /// Get the appropriate Tool command, based on the requested executable and arguments

@@ -5,6 +5,7 @@ pub(crate) mod list;
 pub(crate) mod pin;
 pub(crate) mod run;
 pub(crate) mod setup;
+pub(crate) mod tool;
 pub(crate) mod uninstall;
 pub(crate) mod r#use;
 pub(crate) mod which;
@@ -18,6 +19,7 @@ pub(crate) use pin::Pin;
 pub(crate) use r#use::Use;
 pub(crate) use run::Run;
 pub(crate) use setup::Setup;
+pub(crate) use tool::Tool;
 pub(crate) use uninstall::Uninstall;
 
 use volta_core::error::{ExitCode, Fallible};

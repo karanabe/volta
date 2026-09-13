@@ -8,8 +8,8 @@ use crate::command::Command;
 pub(crate) struct Install {
     /// Runtimes or package managers to install, like `node`, `pnpm@latest`, or `yarn@latest`.
     ///
-    /// The deprecated third-party package install workflow has been removed. Use your package
-    /// manager's global install command instead.
+    /// The deprecated third-party package install workflow has been removed. Use
+    /// `volta tool install` for JavaScript CLI tools instead.
     #[arg(value_name = "tool[@version]", required = true)]
     tools: Vec<String>,
 }

@@ -178,8 +178,8 @@ fn display_packages(packages: &[Package]) -> String {
         String::from(
             "⚡️ No tools or packages installed.
 
-Install global packages with your package manager, for example
-`pnpm add --global <package name>`.",
+Install JavaScript CLI tools with
+`volta tool install <package name>`.",
         )
     } else {
         format!(
@@ -195,8 +195,8 @@ fn display_tool(tool: &str, host_packages: &[Package]) -> String {
         format!(
             "⚡️ No tools or packages named `{}` installed.
 
-Install global packages with your package manager, for example
-`pnpm add --global <package name>`.",
+Install JavaScript CLI tools with
+`volta tool install <package name>`.",
             tool
         )
     } else {
@@ -1136,8 +1136,8 @@ See `volta help install` for details and more options.";
         fn none() {
             let expected = "⚡️ No tools or packages installed.
 
-Install global packages with your package manager, for example
-`pnpm add --global <package name>`.";
+Install JavaScript CLI tools with
+`volta tool install <package name>`.";
 
             assert_eq!(display_packages(&[]), expected);
         }
@@ -1262,8 +1262,8 @@ Install global packages with your package manager, for example
         fn none() {
             let expected = "⚡️ No tools or packages named `ember` installed.
 
-Install global packages with your package manager, for example
-`pnpm add --global <package name>`.";
+Install JavaScript CLI tools with
+`volta tool install <package name>`.";
 
             assert_eq!(display_tool("ember", &[]), expected);
         }

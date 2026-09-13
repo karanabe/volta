@@ -117,7 +117,7 @@ fn get_installed_packages(old_home: &v2::VoltaHome) -> Vec<LegacyPackageConfig> 
                         if let Some(name) = entry.path().file_stem() {
                             let name = name.to_string_lossy();
                             warn!(
-                                "Could not migrate {}. The deprecated `volta install {0}` workflow has been removed; reinstall it with `pnpm add --global {0}` or another package manager.",
+                                "Could not migrate {}. The deprecated `volta install {0}` workflow has been removed; reinstall it with `volta tool install {0}`.",
                                 name
                             );
                         }

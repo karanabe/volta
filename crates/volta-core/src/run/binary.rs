@@ -8,6 +8,7 @@ use crate::error::{Context, ErrorKind, Fallible};
 use crate::layout::volta_home;
 use crate::platform::{Platform, Sourced, System};
 use crate::session::Session;
+use crate::tool::environment;
 use crate::tool::package::BinConfig;
 use log::debug;
 
@@ -16,10 +17,17 @@ use log::debug;
 /// Will detect if we should delegate to the project-local version or use the default version
 pub(super) fn command(exe: &OsStr, args: &[OsString], session: &mut Session) -> Fallible<Executor> {
     let bin = exe.to_string_lossy().to_string();
+    let isolated_tool = environment::lookup_command(&bin)?;
     // First try to use the project toolchain
     if let Some(project) = session.project()? {
-        // Check if the executable is a direct dependency
-        if project.has_direct_bin(exe)? {
+        // Check if the executable is a direct dependency. Legacy packages map
+        // commands through BinConfig; isolated tools map them through their
+        // explicit package/command registry.
+        let is_direct_dependency = project.has_direct_bin(exe)?
+            || isolated_tool
+                .as_ref()
+                .is_some_and(|tool| project.has_direct_dependency(tool.package()));
+        if is_direct_dependency {
             match project.find_bin(exe) {
                 Some(path_to_bin) => {
                     debug!("Found {} in project at '{}'", bin, path_to_bin.display());
@@ -60,7 +68,24 @@ pub(super) fn command(exe: &OsStr, args: &[OsString], session: &mut Session) -> 
         }
     }
 
-    // Try to use the default toolchain
+    // Then try an isolated Volta tool environment. This deliberately comes
+    // after project-local resolution so a global tool never shadows a local
+    // project executable.
+    if let Some(tool) = isolated_tool
+        .map(environment::ToolCommandRegistration::resolve)
+        .transpose()?
+    {
+        debug!("Found isolated tool {} in '{}'", bin, tool.path.display());
+        return Ok(ToolCommand::new(
+            tool.path,
+            args,
+            Some(tool.platform),
+            ToolKind::ToolEnvironment(tool.command),
+        )
+        .into());
+    }
+
+    // Try to use the legacy default package toolchain.
     if let Some(default_tool) = DefaultBinary::from_name(exe, session)? {
         debug!(
             "Found default {} in '{}'",

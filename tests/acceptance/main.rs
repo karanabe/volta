@@ -12,6 +12,7 @@ cfg_if! {
         mod merged_platform;
         mod migrations;
         mod run_shim_directly;
+        mod tool_environments;
         mod verbose_errors;
         mod volta_bypass;
         mod volta_install;
