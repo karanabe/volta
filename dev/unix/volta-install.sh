@@ -1,17 +1,69 @@
 #!/usr/bin/env bash
 
-# This is the bootstrap Unix installer served by `https://get.volta.sh`.
+# This is the bootstrap Unix installer published with GitHub Releases.
 # Its responsibility is to query the system to determine what OS the system
-# has, fetch and install the appropriate build of Volta, and modify the user's
-# profile.
+# has, fetch and verify the appropriate build of Volta, install it, and modify
+# the user's profile.
 
-# NOTE: to use an internal company repo, change how this determines the latest version
+VOLTA_RELEASES_URL="${VOLTA_RELEASES_URL:-https://github.com/karanabe/volta/releases}"
+
+validate_release_version() {
+  local version="$1"
+
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]
+}
+
 get_latest_release() {
-  curl --silent "https://volta.sh/latest-version"
+  local version
+  version="$(curl --proto '=https' --tlsv1.2 --silent --show-error \
+    --location --fail "$(release_url)/latest/download/latest-version")" || return 1
+
+  if ! validate_release_version "$version"; then
+    error "The latest GitHub Release returned an invalid version ('$version')."
+    return 1
+  fi
+
+  printf '%s\n' "$version"
 }
 
 release_url() {
-  echo "https://github.com/volta-cli/volta/releases"
+  printf '%s\n' "$VOLTA_RELEASES_URL"
+}
+
+sha256_file() {
+  local file="$1"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{ print $1 }'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{ print $1 }'
+  else
+    error "Could not verify the release archive: sha256sum or shasum is required."
+    return 1
+  fi
+}
+
+verify_checksum() {
+  local archive="$1"
+  local checksums="$2"
+  local filename
+  local expected
+  local actual
+
+  filename="$(basename "$archive")"
+  expected="$(awk -v filename="$filename" '$2 == filename { print $1; exit }' "$checksums")"
+  if [[ ! "$expected" =~ ^[[:xdigit:]]{64}$ ]]; then
+    error "No valid SHA-256 checksum was published for '$filename'."
+    return 1
+  fi
+
+  actual="$(sha256_file "$archive")" || return 1
+  expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
+  actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"
+  if [ "$actual" != "$expected" ]; then
+    error "Checksum verification failed for '$filename'."
+    return 1
+  fi
 }
 
 download_release_from_repo() {
@@ -21,9 +73,17 @@ download_release_from_repo() {
 
   local filename="volta-$version-$os_info.tar.gz"
   local download_file="$tmpdir/$filename"
+  local checksums_file="$tmpdir/SHA256SUMS"
   local archive_url="$(release_url)/download/v$version/$filename"
+  local checksums_url="$(release_url)/download/v$version/SHA256SUMS"
 
-  curl --progress-bar --show-error --location --fail "$archive_url" --output "$download_file" --write-out "$download_file"
+  curl --proto '=https' --tlsv1.2 --progress-bar --show-error --location \
+    --fail "$archive_url" --output "$download_file" || return 1
+  curl --proto '=https' --tlsv1.2 --silent --show-error --location --fail \
+    "$checksums_url" --output "$checksums_file" || return 1
+  verify_checksum "$download_file" "$checksums_file" || return 1
+
+  printf '%s\n' "$download_file"
 }
 
 usage() {
@@ -123,7 +183,7 @@ upgrade_is_ok() {
 # returns the os name to be used in the packaged release
 parse_os_info() {
   local uname_str="$1"
-  local arch="$(uname -m)"
+  local arch="${2:-$(uname -m)}"
 
   case "$uname_str" in
     Linux)
@@ -202,7 +262,8 @@ install_version() {
 
   case "$version_to_install" in
     latest)
-      local latest_version="$(get_latest_release)"
+      local latest_version
+      latest_version="$(get_latest_release)" || return 1
       info 'Installing' "latest version of Volta ($latest_version)"
       install_release "$latest_version" "$install_dir"
       ;;
@@ -255,6 +316,13 @@ install_release() {
   local version="$1"
   local install_dir="$2"
   local is_dev_install="false"
+  local download_archive
+  local exit_status
+
+  if ! validate_release_version "$version"; then
+    error "Invalid Volta release version '$version'."
+    return 1
+  fi
 
   info 'Checking' "for existing Volta installation"
   if upgrade_is_ok "$version" "$install_dir" "$is_dev_install"
@@ -268,6 +336,9 @@ install_release() {
     fi
 
     install_from_file "$download_archive" "$install_dir"
+    exit_status="$?"
+    rm -rf -- "$(dirname "$download_archive")"
+    return "$exit_status"
   else
     # existing legacy install, or upgrade problem
     return 1
@@ -319,19 +390,26 @@ compile_and_package() {
 download_release() {
   local version="$1"
 
-  local uname_str="$(uname -s)"
+  local uname_str
+  local download_dir
   local os_info
+  local pretty_os_name
+
+  uname_str="$(uname -s)"
   os_info="$(parse_os_info "$uname_str")"
   if [ "$?" != 0 ]; then
     error "The current operating system ($uname_str) does not appear to be supported by Volta."
     return 1
   fi
-  local pretty_os_name="$(parse_os_pretty "$uname_str")"
+  pretty_os_name="$(parse_os_pretty "$uname_str")"
 
   info 'Fetching' "archive for $pretty_os_name, version $version"
   # store the downloaded archive in a temporary directory
-  local download_dir="$(mktemp -d)"
-  download_release_from_repo "$version" "$os_info" "$download_dir"
+  download_dir="$(mktemp -d)" || return 1
+  if ! download_release_from_repo "$version" "$os_info" "$download_dir"; then
+    rm -rf -- "$download_dir"
+    return 1
+  fi
 }
 
 install_from_file() {
@@ -377,6 +455,11 @@ do
       ;;
     --version)
       shift # shift off the argument
+      if [ $# -eq 0 ]; then
+        error "--version requires a value"
+        usage
+        exit 1
+      fi
       version_to_install="$1"
       shift # shift off the value
       ;;

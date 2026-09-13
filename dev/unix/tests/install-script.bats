@@ -40,11 +40,57 @@ END_CARGO_TOML
   diff <(echo "$output") <(echo "$expected_output")
 }
 
+@test "validate_release_version - release versions" {
+  run validate_release_version "2.0.3"
+  [ "$status" -eq 0 ]
+
+  run validate_release_version "2.0.3-beta.1"
+  [ "$status" -eq 0 ]
+}
+
+@test "validate_release_version - invalid versions" {
+  run validate_release_version "v2.0.3"
+  [ "$status" -eq 1 ]
+
+  run validate_release_version "2.0.3/../../archive"
+  [ "$status" -eq 1 ]
+}
+
+@test "verify_checksum - matching archive" {
+  archive="$BATS_TEST_TMPDIR/volta-2.0.3-linux.tar.gz"
+  checksums="$BATS_TEST_TMPDIR/SHA256SUMS"
+  printf 'release archive' > "$archive"
+  hash="$(sha256_file "$archive")"
+  printf '%s  %s\n' "$hash" "$(basename "$archive")" > "$checksums"
+
+  run verify_checksum "$archive" "$checksums"
+  [ "$status" -eq 0 ]
+}
+
+@test "verify_checksum - modified archive" {
+  archive="$BATS_TEST_TMPDIR/volta-2.0.3-linux.tar.gz"
+  checksums="$BATS_TEST_TMPDIR/SHA256SUMS"
+  printf '%064d  %s\n' 0 "$(basename "$archive")" > "$checksums"
+  printf 'modified archive' > "$archive"
+
+  run verify_checksum "$archive" "$checksums"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Checksum verification failed"* ]]
+}
+
 # linux
 @test "parse_os_info - linux" {
   expected_output="linux"
 
   run parse_os_info "Linux"
+  [ "$status" -eq 0 ]
+  diff <(echo "$output") <(echo "$expected_output")
+}
+
+@test "parse_os_info - linux arm64" {
+  expected_output="linux-arm"
+
+  run parse_os_info "Linux" "aarch64"
   [ "$status" -eq 0 ]
   diff <(echo "$output") <(echo "$expected_output")
 }

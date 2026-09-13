@@ -48,7 +48,7 @@ case "$1" in
   *)
     error "Unknown argument '$1'"
     usage
-    exit1
+    exit 1
     ;;
 esac
 
@@ -58,8 +58,7 @@ VOLTA_VERSION="$(parse_cargo_version "$cargo_toml_contents")" || exit 1
 
 # figure out the OS details
 os="$(uname -s)"
-openssl_version="$(openssl version)" || exit 1
-VOLTA_OS="$(parse_os_info "$os" "$openssl_version")"
+VOLTA_OS="$(parse_os_info "$os")"
 if [ "$?" != 0 ]; then
   error "Releases for '$os' are not yet supported."
   request "To support '$os', add another case to parse_os_info() in volta-install.sh."
