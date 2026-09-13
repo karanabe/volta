@@ -66,7 +66,7 @@ printf '\033[1;32m%12s\033[0m %s\n' "Running" "Volta post-install setup..." 1>&2
 
 
 %changelog
-* Tue Oct 22 2019 Charles Pierce <cpierce.grad@gmail.com> - 0.6.5-1
+* Tue Oct 22 2019 Volta Project - 0.6.5-1
 - Update to use 'volta setup' as the postinstall script
 * Mon Jun 03 2019 Michael Stewart <mikrostew@gmail.com> - 0.5.3-1
 - First volta package

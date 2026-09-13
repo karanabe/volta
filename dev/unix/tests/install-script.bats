@@ -10,7 +10,6 @@ source dev/unix/volta-install.sh
 [package]
 name = "volta"
 version = "0.7.38"
-authors = ["David Herman <david.herman@gmail.com>"]
 license = "BSD-2-Clause"
 END_CARGO_TOML
 )

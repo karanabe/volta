@@ -113,3 +113,10 @@ maintainer's personal workflows. Before contributing, please read the
 [code of conduct](CODE_OF_CONDUCT.md). The upstream
 [Contributing Guide](https://docs.volta.sh/contributing/) remains useful for
 development setup and repository conventions.
+
+## Acknowledgements
+
+Volta was originally developed by David Herman and Charles Pierce. The original
+project and its contributors developed and maintained Volta through November
+2025. Since September 2026, this fork has been independently continued and
+maintained by an individual for personal use.

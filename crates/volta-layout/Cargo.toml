@@ -1,7 +1,6 @@
 [package]
 name = "volta-layout"
 version = "0.1.1"
-authors = ["Chuck Pierce <cpierce.grad@gmail.com>"]
 edition = "2021"
 
 [dependencies]
