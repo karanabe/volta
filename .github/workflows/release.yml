@@ -20,24 +20,21 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v6
-      - name: Set up docker buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Build docker image
-        uses: docker/build-push-action@v6
+      # Avoid inheriting ubuntu-latest's newer glibc requirement in release binaries.
+      - name: Install cross-rs
+        uses: taiki-e/install-action@v2
         with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          context: ./ci/docker
-          push: false
-          load: true
-          tags: volta
-      - name: Compile and package Volta
-        run: docker run --volume "${PWD}:/root/workspace" --workdir /root/workspace --rm --init volta /root/workspace/ci/build-linux.sh volta-linux
+          tool: cross
+      - name: Compile Volta
+        run: cross build --release --target x86_64-unknown-linux-gnu
+      - name: Package Volta
+        run: tar -zcvf "volta-linux.tar.gz" volta volta-shim volta-migrate
+        working-directory: target/x86_64-unknown-linux-gnu/release
       - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux
-          path: target/release/volta-linux.tar.gz
+          path: target/x86_64-unknown-linux-gnu/release/volta-linux.tar.gz
 
   linux-arm:
     name: Build - Linux ARM
@@ -55,7 +52,7 @@ jobs:
         run: |
           cd target/aarch64-unknown-linux-gnu/release && tar -zcvf "volta-linux-arm.tar.gz" volta volta-shim volta-migrate
       - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-arm
           path: target/aarch64-unknown-linux-gnu/release/volta-linux-arm.tar.gz
@@ -73,7 +70,7 @@ jobs:
       - name: Compile and package Volta
         run: ./ci/build-macos.sh volta-macos
       - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos
           path: target/universal-apple-darwin/release/volta-macos.tar.gz
@@ -97,12 +94,12 @@ jobs:
         run: powershell Compress-Archive volta*.exe volta-windows.zip
         working-directory: ./target/release
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-installer
           path: target/wix/volta-windows.msi
       - name: Upload zip
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-zip
           path: target/release/volta-windows.zip
@@ -127,12 +124,12 @@ jobs:
         run: powershell Compress-Archive volta*.exe volta-windows-arm.zip
         working-directory: ./target/aarch64-pc-windows-msvc/release
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-installer-arm
           path: target/wix/volta-windows-arm.msi
       - name: Upload zip
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-zip-arm
           path: target/aarch64-pc-windows-msvc/release/volta-windows-arm.zip
@@ -167,37 +164,37 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Fetch Linux artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux
           path: release
       - name: Fetch Linux ARM artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-arm
           path: release
       - name: Fetch MacOS artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: macos
           path: release
       - name: Fetch Windows installer
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-installer
           path: release
       - name: Fetch Windows zip
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-zip
           path: release
       - name: Fetch Windows ARM installer
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-installer-arm
           path: release
       - name: Fetch Windows ARM zip
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-zip-arm
           path: release
