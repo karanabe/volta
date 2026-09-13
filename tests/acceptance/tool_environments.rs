@@ -63,9 +63,9 @@ case "$spec" in
     marker="$store_dir/alpha-upgraded"
     if [ -f "$marker" ]; then version=2.0.0; else version=1.0.0; fi
     mkdir -p "$store_dir"
-    touch "$marker"
+    : > "$marker"
     if [ -n "$allow_build_esbuild" ]; then
-      touch "$store_dir/allow-build-esbuild"
+      : > "$store_dir/allow-build-esbuild"
     fi
     command=alpha
     ;;
