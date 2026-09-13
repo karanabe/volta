@@ -19,19 +19,20 @@ pub const NPM_ABBREVIATED_ACCEPT_HEADER: &str =
 
 cfg_if! {
     if #[cfg(feature = "mock-network")] {
-        // TODO: We need to reconsider our mocking strategy in light of mockito deprecating the
-        // SERVER_URL constant: Since our acceptance tests run the binary in a separate process,
-        // we can't use `mockito::server_url()`, which relies on shared memory.
-        #[allow(deprecated)]
-        const SERVER_URL: &str = mockito::SERVER_URL;
         pub fn public_registry_index(package: &str) -> String {
-            format!("{}/{}", SERVER_URL, package)
+            format!("{}/{}", mock_server_url(), package)
         }
     } else {
         pub fn public_registry_index(package: &str) -> String {
             format!("https://registry.npmjs.org/{}", package)
         }
     }
+}
+
+#[cfg(feature = "mock-network")]
+fn mock_server_url() -> String {
+    std::env::var("VOLTA_MOCK_SERVER_URL")
+        .expect("VOLTA_MOCK_SERVER_URL must be set when mock-network is enabled")
 }
 
 // fetch a registry that returns info in Npm format

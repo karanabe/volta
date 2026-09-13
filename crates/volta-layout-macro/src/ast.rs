@@ -113,7 +113,7 @@ impl Parse for Directory {
         let content;
         braced!(content in input);
         Ok(Directory {
-            entries: content.parse_terminated(FieldPrefix::parse)?,
+            entries: content.call(Punctuated::parse_terminated)?,
         })
     }
 }

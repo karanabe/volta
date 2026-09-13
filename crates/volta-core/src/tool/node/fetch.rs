@@ -20,12 +20,9 @@ use serde::Deserialize;
 
 cfg_if! {
     if #[cfg(feature = "mock-network")] {
-        // TODO: We need to reconsider our mocking strategy in light of mockito deprecating the
-        // SERVER_URL constant: Since our acceptance tests run the binary in a separate process,
-        // we can't use `mockito::server_url()`, which relies on shared memory.
         fn public_node_server_root() -> String {
-            #[allow(deprecated)]
-            mockito::SERVER_URL.to_string()
+            std::env::var("VOLTA_MOCK_SERVER_URL")
+                .expect("VOLTA_MOCK_SERVER_URL must be set when mock-network is enabled")
         }
     } else {
         fn public_node_server_root() -> String {

@@ -7,7 +7,6 @@ use crate::support::events_helpers::{
 use crate::support::sandbox::sandbox;
 use hamcrest2::assert_that;
 use hamcrest2::prelude::*;
-use mockito::mock;
 use test_support::matchers::execs;
 use volta_core::error::ExitCode;
 
@@ -57,7 +56,7 @@ done
     }
 }
 
-fn default_hooks_json() -> String {
+fn default_hooks_json(server_url: &str) -> String {
     format!(
         r#"
 {{
@@ -82,12 +81,11 @@ fn default_hooks_json() -> String {
         }}
     }}
 }}"#,
-        mockito::server_url(),
-        SCRIPT_FILENAME
+        server_url, SCRIPT_FILENAME
     )
 }
 
-fn project_hooks_json() -> String {
+fn project_hooks_json(server_url: &str) -> String {
     format!(
         r#"
 {{
@@ -97,11 +95,11 @@ fn project_hooks_json() -> String {
         }}
     }}
 }}"#,
-        mockito::server_url()
+        server_url
     )
 }
 
-fn workspace_hooks_json() -> String {
+fn workspace_hooks_json(server_url: &str) -> String {
     format!(
         r#"
 {{
@@ -116,11 +114,11 @@ fn workspace_hooks_json() -> String {
         }}
     }}
 }}"#,
-        mockito::server_url()
+        server_url
     )
 }
 
-fn pnpm_hooks_json() -> String {
+fn pnpm_hooks_json(server_url: &str) -> String {
     format!(
         r#"
 {{
@@ -133,11 +131,11 @@ fn pnpm_hooks_json() -> String {
         }}
     }}
 }}"#,
-        mockito::server_url()
+        server_url
     )
 }
 
-fn yarn_hooks_json() -> String {
+fn yarn_hooks_json(server_url: &str) -> String {
     format!(
         r#"
 {{
@@ -150,11 +148,11 @@ fn yarn_hooks_json() -> String {
         }}
     }}
 }}"#,
-        mockito::server_url()
+        server_url
     )
 }
 
-fn yarn_hooks_format_json(format: &str) -> String {
+fn yarn_hooks_format_json(server_url: &str, format: &str) -> String {
     format!(
         r#"
 {{
@@ -168,15 +166,16 @@ fn yarn_hooks_format_json(format: &str) -> String {
         }}
     }}
 }}"#,
-        mockito::server_url(),
-        format
+        server_url, format
     )
 }
 
 #[test]
 fn redirects_download() {
-    let s = sandbox()
-        .default_hooks(&default_hooks_json())
+    let builder = sandbox();
+    let server_url = builder.mock_server_url();
+    let s = builder
+        .default_hooks(&default_hooks_json(&server_url))
         .env("VOLTA_WRITE_EVENTS_FILE", "true")
         .executable_file(SCRIPT_FILENAME, EVENTS_EXECUTABLE)
         .build();
@@ -208,10 +207,15 @@ fn redirects_download() {
 #[test]
 fn merges_project_and_default_hooks() {
     let local_hooks: PathBuf = [".volta", "hooks.json"].iter().collect();
-    let s = sandbox()
+    let builder = sandbox();
+    let server_url = builder.mock_server_url();
+    let s = builder
         .package_json("{}")
-        .default_hooks(&default_hooks_json())
-        .project_file(&local_hooks.to_string_lossy(), &project_hooks_json())
+        .default_hooks(&default_hooks_json(&server_url))
+        .project_file(
+            &local_hooks.to_string_lossy(),
+            &project_hooks_json(&server_url),
+        )
         .env("VOLTA_WRITE_EVENTS_FILE", "true")
         .executable_file(SCRIPT_FILENAME, EVENTS_EXECUTABLE)
         .build();
@@ -268,15 +272,23 @@ fn merges_workspace_hooks() {
     let workspace_hooks: PathBuf = ["workspace", ".volta", "hooks.json"].iter().collect();
     let workspace_package_json: PathBuf = ["workspace", "package.json"].iter().collect();
     let project_hooks: PathBuf = [".volta", "hooks.json"].iter().collect();
-    let s = sandbox()
-        .default_hooks(&default_hooks_json())
+    let builder = sandbox();
+    let server_url = builder.mock_server_url();
+    let s = builder
+        .default_hooks(&default_hooks_json(&server_url))
         .package_json(PROJECT_PACKAGE_JSON)
-        .project_file(&project_hooks.to_string_lossy(), &project_hooks_json())
+        .project_file(
+            &project_hooks.to_string_lossy(),
+            &project_hooks_json(&server_url),
+        )
         .project_file(
             &workspace_package_json.to_string_lossy(),
             WORKSPACE_PACKAGE_JSON,
         )
-        .project_file(&workspace_hooks.to_string_lossy(), &workspace_hooks_json())
+        .project_file(
+            &workspace_hooks.to_string_lossy(),
+            &workspace_hooks_json(&server_url),
+        )
         .env("VOLTA_WRITE_EVENTS_FILE", "true")
         .executable_file(SCRIPT_FILENAME, EVENTS_EXECUTABLE)
         .build();
@@ -339,12 +351,15 @@ fn merges_workspace_hooks() {
 
 #[test]
 fn pnpm_latest_with_hook_reads_index() {
-    let s = sandbox()
-        .default_hooks(&pnpm_hooks_json())
+    let builder = sandbox();
+    let server_url = builder.mock_server_url();
+    let mut s = builder
+        .default_hooks(&pnpm_hooks_json(&server_url))
         .env("VOLTA_LOGLEVEL", "debug")
         .env("VOLTA_FEATURE_PNPM", "1")
         .build();
-    let _mock = mock("GET", "/pnpm/index")
+    let _mock = s
+        .mock("GET", "/pnpm/index")
         .with_status(200)
         .with_header("Content-Type", "application/json")
         .with_body(
@@ -374,12 +389,15 @@ fn pnpm_latest_with_hook_reads_index() {
 
 #[test]
 fn pnpm_no_version_with_hook_reads_index() {
-    let s = sandbox()
-        .default_hooks(&pnpm_hooks_json())
+    let builder = sandbox();
+    let server_url = builder.mock_server_url();
+    let mut s = builder
+        .default_hooks(&pnpm_hooks_json(&server_url))
         .env("VOLTA_LOGLEVEL", "debug")
         .env("VOLTA_FEATURE_PNPM", "1")
         .build();
-    let _mock = mock("GET", "/pnpm/index")
+    let _mock = s
+        .mock("GET", "/pnpm/index")
         .with_status(200)
         .with_header("Content-Type", "application/json")
         .with_body(
@@ -409,11 +427,14 @@ fn pnpm_no_version_with_hook_reads_index() {
 
 #[test]
 fn yarn_latest_with_hook_reads_latest() {
-    let s = sandbox()
-        .default_hooks(&yarn_hooks_json())
+    let builder = sandbox();
+    let server_url = builder.mock_server_url();
+    let mut s = builder
+        .default_hooks(&yarn_hooks_json(&server_url))
         .env("VOLTA_LOGLEVEL", "debug")
         .build();
-    let _mock = mock("GET", "/yarn-old/latest")
+    let _mock = s
+        .mock("GET", "/yarn-old/latest")
         .with_status(200)
         .with_body("4.2.9")
         .create();
@@ -430,11 +451,14 @@ fn yarn_latest_with_hook_reads_latest() {
 
 #[test]
 fn yarn_no_version_with_hook_reads_latest() {
-    let s = sandbox()
-        .default_hooks(&yarn_hooks_json())
+    let builder = sandbox();
+    let server_url = builder.mock_server_url();
+    let mut s = builder
+        .default_hooks(&yarn_hooks_json(&server_url))
         .env("VOLTA_LOGLEVEL", "debug")
         .build();
-    let _mock = mock("GET", "/yarn-old/latest")
+    let _mock = s
+        .mock("GET", "/yarn-old/latest")
         .with_status(200)
         .with_body("4.2.9")
         .create();
@@ -451,11 +475,14 @@ fn yarn_no_version_with_hook_reads_latest() {
 
 #[test]
 fn yarn_semver_with_hook_uses_old_format() {
-    let s = sandbox()
-        .default_hooks(&yarn_hooks_json())
+    let builder = sandbox();
+    let server_url = builder.mock_server_url();
+    let mut s = builder
+        .default_hooks(&yarn_hooks_json(&server_url))
         .env("VOLTA_LOGLEVEL", "debug")
         .build();
-    let _mock = mock("GET", "/yarn-old/index")
+    let _mock = s
+        .mock("GET", "/yarn-old/index")
         .with_status(200)
         .with_header("Content-Type", "application/json")
         .with_body(
@@ -481,11 +508,14 @@ fn yarn_semver_with_hook_uses_old_format() {
 
 #[test]
 fn yarn_semver_with_hook_uses_configured_format() {
-    let s = sandbox()
-        .default_hooks(&yarn_hooks_format_json("npm"))
+    let builder = sandbox();
+    let server_url = builder.mock_server_url();
+    let mut s = builder
+        .default_hooks(&yarn_hooks_format_json(&server_url, "npm"))
         .env("VOLTA_LOGLEVEL", "debug")
         .build();
-    let _mock = mock("GET", "/yarn-new/index")
+    let _mock = s
+        .mock("GET", "/yarn-new/index")
         .with_status(200)
         .with_header("Content-Type", "application/json")
         .with_body(
