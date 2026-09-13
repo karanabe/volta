@@ -17,6 +17,7 @@ use log::debug;
 pub enum ActivityKind {
     Fetch,
     Install,
+    Upgrade,
     Uninstall,
     List,
     Current,
@@ -45,6 +46,7 @@ impl Display for ActivityKind {
         let s = match self {
             ActivityKind::Fetch => "fetch",
             ActivityKind::Install => "install",
+            ActivityKind::Upgrade => "upgrade",
             ActivityKind::Uninstall => "uninstall",
             ActivityKind::List => "list",
             ActivityKind::Current => "current",

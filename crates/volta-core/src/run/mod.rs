@@ -79,8 +79,8 @@ pub fn execute_tool_environment(
     ToolCommand::new(
         resolved.path,
         args,
-        Some(resolved.platform),
-        ToolKind::ToolEnvironment(resolved.command),
+        None,
+        ToolKind::ToolEnvironment(resolved.runtime_bin),
     )
     .execute(session)
 }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 
 use super::RECURSION_ENV_VAR;
@@ -55,7 +56,7 @@ pub enum ToolKind {
     Pnpm,
     Yarn,
     ProjectLocalBinary(String),
-    ToolEnvironment(String),
+    ToolEnvironment(PathBuf),
     DefaultBinary(String),
     Bypass(String),
 }
@@ -118,8 +119,8 @@ impl ToolCommand {
             ToolKind::ProjectLocalBinary(bin) => {
                 super::binary::local_execution_context(bin, self.platform, session)?
             }
-            ToolKind::ToolEnvironment(bin) => {
-                super::binary::default_execution_context(bin, self.platform, session)?
+            ToolKind::ToolEnvironment(runtime_bin) => {
+                super::binary::isolated_execution_context(runtime_bin)?
             }
             ToolKind::Bypass(command) => (System::path()?, ErrorKind::BypassError { command }),
         };

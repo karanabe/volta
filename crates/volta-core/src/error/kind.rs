@@ -273,17 +273,6 @@ pub enum ErrorKind {
         package: String,
     },
 
-    /// Thrown when an immutable package-store entry does not match its address.
-    PackageStoreCorrupt {
-        content_hash: String,
-    },
-
-    /// Thrown when a package-store filesystem operation fails.
-    PackageStoreError {
-        path: PathBuf,
-        message: String,
-    },
-
     /// Thrown when parsing the package manifest fails
     PackageManifestParseError {
         package: String,
@@ -491,6 +480,33 @@ pub enum ErrorKind {
     ToolRunAmbiguous {
         package: String,
         executables: Vec<String>,
+    },
+
+    /// Thrown when removing Node would break one or more isolated tools.
+    ToolRuntimeInUse {
+        version: String,
+        tools: Vec<String>,
+    },
+
+    /// Thrown when an isolated tool's exact Node runtime was forcibly removed.
+    ToolRuntimeMissing {
+        package: String,
+        version: String,
+    },
+
+    /// Thrown when uninstall receives a range or tag instead of an exact version.
+    UninstallVersionRequired {
+        tool: String,
+        requested: String,
+    },
+
+    /// Thrown when attempting to remove npm bundled inside a Node image.
+    BundledNpmUninstall,
+
+    /// Thrown when an exact runtime or package-manager image is absent.
+    InventoryToolNotInstalled {
+        tool: String,
+        version: String,
     },
 
     /// Thrown when serializing the platform to JSON fails
@@ -1057,20 +1073,6 @@ Please confirm the package is valid and run with `--verbose` for more diagnostic
 Use `volta tool install {0}` to install a JavaScript CLI tool.",
                 package
             ),
-            ErrorKind::PackageStoreCorrupt { content_hash } => write!(
-                f,
-                "Package store entry '{}' failed integrity verification.
-
-Remove the damaged entry and reinstall the affected tool.",
-                content_hash
-            ),
-            ErrorKind::PackageStoreError { path, message } => write!(
-                f,
-                "Could not access the package store at {}
-
-{}",
-                path.display(), message
-            ),
             ErrorKind::PackageManifestParseError { package } => write!(
                 f,
                 "Could not parse package.json manifest for {}
@@ -1421,6 +1423,31 @@ Run `volta tool run <command>` with one of those executable names.",
                 package,
                 executables.join(", ")
             ),
+            ErrorKind::ToolRuntimeInUse { version, tools } => write!(
+                f,
+                "Cannot uninstall node@{} because it is used by isolated tools: {}.\n\nUpgrade or uninstall those tools first, or pass `--force` to leave them broken.",
+                version,
+                tools.join(", ")
+            ),
+            ErrorKind::ToolRuntimeMissing { package, version } => write!(
+                f,
+                "The isolated tool '{}' requires node@{}, but that runtime is not installed.\n\nRun `volta tool upgrade {}` to restore it, or pass `--node <version>` to change runtimes.",
+                package, version, package
+            ),
+            ErrorKind::UninstallVersionRequired { tool, requested } => write!(
+                f,
+                "Cannot uninstall {}@{} by a range or tag.\n\nSpecify an exact version, or omit the version to uninstall the active default.",
+                tool, requested
+            ),
+            ErrorKind::BundledNpmUninstall => write!(
+                f,
+                "The active npm is bundled with Node and cannot be removed independently.\n\nUninstall the corresponding Node version instead."
+            ),
+            ErrorKind::InventoryToolNotInstalled { tool, version } => write!(
+                f,
+                "No inventory entry for {}@{} is installed.\n\nUse `volta install` or `volta fetch` to add it first.",
+                tool, version
+            ),
             ErrorKind::StringifyPlatformError => write!(
                 f,
                 "Could not serialize platform settings.
@@ -1626,8 +1653,6 @@ impl ErrorKind {
             ErrorKind::NpxNotAvailable { .. } => ExitCode::ExecutableNotFound,
             ErrorKind::PackageInstallFailed { .. } => ExitCode::UnknownError,
             ErrorKind::PackageInstallRemoved { .. } => ExitCode::InvalidArguments,
-            ErrorKind::PackageStoreCorrupt { .. } => ExitCode::ConfigurationError,
-            ErrorKind::PackageStoreError { .. } => ExitCode::FileSystemError,
             ErrorKind::PackageManifestParseError { .. } => ExitCode::ConfigurationError,
             ErrorKind::PackageManifestReadError { .. } => ExitCode::FileSystemError,
             ErrorKind::PackageNotFound { .. } => ExitCode::InvalidArguments,
@@ -1675,6 +1700,11 @@ impl ErrorKind {
             ErrorKind::ToolMetadataError { .. } => ExitCode::FileSystemError,
             ErrorKind::ToolNotInstalled { .. } => ExitCode::ExecutableNotFound,
             ErrorKind::ToolRunAmbiguous { .. } => ExitCode::InvalidArguments,
+            ErrorKind::ToolRuntimeInUse { .. } => ExitCode::ConfigurationError,
+            ErrorKind::ToolRuntimeMissing { .. } => ExitCode::ConfigurationError,
+            ErrorKind::UninstallVersionRequired { .. } => ExitCode::InvalidArguments,
+            ErrorKind::BundledNpmUninstall => ExitCode::InvalidArguments,
+            ErrorKind::InventoryToolNotInstalled { .. } => ExitCode::ExecutableNotFound,
             ErrorKind::StringifyPlatformError => ExitCode::UnknownError,
             ErrorKind::Unimplemented { .. } => ExitCode::UnknownError,
             ErrorKind::UnpackArchiveError { .. } => ExitCode::UnknownError,

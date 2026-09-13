@@ -14,10 +14,10 @@ pub mod environment;
 pub mod node;
 pub mod npm;
 pub mod package;
-mod package_store;
 pub mod pnpm;
 mod registry;
 mod serial;
+mod uninstall;
 pub mod yarn;
 
 pub use node::{
@@ -104,26 +104,15 @@ impl Spec {
 
     /// Uninstall a tool, removing it from the local inventory
     ///
-    /// This is implemented on Spec, instead of Resolved, because there is currently no need to
-    /// resolve the specific version before uninstalling a tool.
-    pub fn uninstall(self) -> Fallible<()> {
+    /// Removal deliberately does not resolve ranges or tags against the
+    /// network: it accepts an exact version, or the active default when no
+    /// version is supplied.
+    pub fn uninstall(self, force: bool, session: &mut Session) -> Fallible<()> {
         match self {
-            Spec::Node(_) => Err(ErrorKind::Unimplemented {
-                feature: "Uninstalling node".into(),
-            }
-            .into()),
-            Spec::Npm(_) => Err(ErrorKind::Unimplemented {
-                feature: "Uninstalling npm".into(),
-            }
-            .into()),
-            Spec::Pnpm(_) => Err(ErrorKind::Unimplemented {
-                feature: "Uninstalling pnpm".into(),
-            }
-            .into()),
-            Spec::Yarn(_) => Err(ErrorKind::Unimplemented {
-                feature: "Uninstalling yarn".into(),
-            }
-            .into()),
+            Spec::Node(version) => uninstall::node(version, force, session),
+            Spec::Npm(version) => uninstall::npm(version, session),
+            Spec::Pnpm(version) => uninstall::pnpm(version, session),
+            Spec::Yarn(version) => uninstall::yarn(version, session),
             Spec::Package(name, _) => package::uninstall(&name),
         }
     }

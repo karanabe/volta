@@ -1,13 +1,9 @@
 //! Per-tool isolated environments for JavaScript CLI packages.
 //!
-//! npm is used only to resolve and initially materialize a dependency graph.
-//! This module then records that graph, interns each package's immutable files
-//! in Volta's content-addressed package store, and publishes the complete
-//! environment atomically. The store never owns or interprets Node resolution
-//! topology.
+//! pnpm owns dependency resolution, its content-addressed store, and the
+//! `node_modules` link topology. Volta owns the immutable environment receipt,
+//! exact Node and pnpm selections, command registration, and atomic publish.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::Read;
 #[cfg(unix)]
@@ -21,22 +17,24 @@ use tempfile::{tempdir_in, TempDir};
 use validate_npm_package_name::{validate, Validity};
 
 use self::manifest::{
-    DependencyEdge, DependencyKind, Executable, MaterializationSummary, NpmBins,
-    NpmPackageManifest, PackageNode, RuntimeSelection, RuntimeSource, ToolManifest, MANIFEST_FILE,
+    Executable, InstallSettings, InstallerKind, InstallerSelection, NpmBins, NpmPackageManifest,
+    PackageSelection, RuntimeSelection, ToolManifest, LOCKFILE, MANIFEST_FILE, RUNTIME_LINK,
 };
 use self::registry::{RegisteredCommand, RegisteredTool, ToolRegistry};
 use super::check_shim_reachable;
 use super::package::BinConfig;
-use super::package_store::{PackageArtifact, PackageStore};
+use super::{Node, Pnpm};
 use crate::command::create_command;
 use crate::error::{ErrorKind, Fallible};
-use crate::fs::{remove_dir_if_exists, rename};
+use crate::fs::{remove_dir_if_exists, rename, symlink_dir};
+use crate::inventory::node_available;
 use crate::layout::volta_home;
-use crate::platform::{Platform, PlatformSpec, Source};
+use crate::platform::Sourced;
 use crate::session::Session;
 use crate::shim::{self, ShimResult};
 use crate::style::{progress_spinner, success_prefix, tool_version};
 use crate::sync::VoltaLock;
+use crate::version::VersionSpec;
 
 mod manifest;
 mod registry;
@@ -85,17 +83,20 @@ impl ToolPackageSpec {
     }
 }
 
-/// A command resolved from the isolated-tool registry.
-pub(crate) struct ResolvedToolCommand {
-    pub(crate) command: String,
-    pub(crate) path: PathBuf,
-    pub(crate) platform: Platform,
+/// Settings that affect pnpm's materialization of an isolated tool.
+#[derive(Debug, Default)]
+pub struct InstallOptions {
+    pub node: Option<VersionSpec>,
+    pub allow_builds: Vec<String>,
 }
 
-/// A registry lookup that has not loaded or validated the referenced
-/// environment yet. Keeping this separate lets project-local resolution use
-/// the package identity without allowing a damaged global environment to
-/// block a valid local executable.
+/// A command resolved from the isolated-tool registry.
+pub(crate) struct ResolvedToolCommand {
+    pub(crate) path: PathBuf,
+    pub(crate) runtime_bin: PathBuf,
+}
+
+/// A registry lookup that has not loaded or validated its environment yet.
 pub(crate) struct ToolCommandRegistration {
     command: String,
     package: String,
@@ -112,8 +113,6 @@ impl ToolCommandRegistration {
     }
 }
 
-/// One published environment and the metadata that owns its dependency graph
-/// and Node resolution topology.
 struct ToolEnvironment {
     root: PathBuf,
     manifest: ToolManifest,
@@ -124,18 +123,31 @@ impl ToolEnvironment {
         validate_registry_reference(package, installation)?;
         let root = volta_home()?.tool_installation_dir(package, installation);
         let manifest = ToolManifest::read(&root.join(MANIFEST_FILE))?;
-        if manifest.package != package || manifest.installation_id != installation {
+        if manifest.package.name != package || manifest.installation_id != installation {
             return Err(corrupt(
                 package,
                 "registry and environment manifest do not agree",
             ));
         }
         validate_installation_id(&manifest)?;
+        validate_lockfile(&manifest, &root)?;
         validate_executable_files(&manifest, &root)?;
+        validate_runtime_reference(&manifest, &root)?;
         Ok(Self { root, manifest })
     }
 
+    fn runtime_available(&self) -> Fallible<bool> {
+        node_available(&self.manifest.runtime.resolved)
+    }
+
     fn resolve(self, command: &str) -> Fallible<ResolvedToolCommand> {
+        if !self.runtime_available()? {
+            return Err(ErrorKind::ToolRuntimeMissing {
+                package: self.manifest.package.name.clone(),
+                version: self.manifest.runtime.resolved.to_string(),
+            }
+            .into());
+        }
         let executable = self
             .manifest
             .executables
@@ -143,33 +155,122 @@ impl ToolEnvironment {
             .find(|executable| executable.name == command)
             .ok_or_else(|| {
                 corrupt(
-                    &self.manifest.package,
+                    &self.manifest.package.name,
                     "registered executable is absent from manifest",
                 )
             })?;
         Ok(ResolvedToolCommand {
-            command: command.to_owned(),
             path: self.root.join(&executable.path),
-            platform: PlatformSpec {
-                node: self.manifest.runtime.node,
-                npm: None,
-                pnpm: None,
-                yarn: None,
-            }
-            .as_binary(),
+            runtime_bin: self.runtime_bin(),
         })
+    }
+
+    fn runtime_bin(&self) -> PathBuf {
+        let runtime = self.root.join(RUNTIME_LINK);
+        if cfg!(unix) {
+            runtime.join("bin")
+        } else {
+            runtime
+        }
     }
 }
 
 /// Install or atomically replace one isolated JavaScript CLI tool.
-pub fn install(spec: ToolPackageSpec, session: &mut Session) -> Fallible<InstalledTool> {
-    let _lock = VoltaLock::acquire()?;
-    let platform = Platform::current(session)?.ok_or(ErrorKind::NoPlatform)?;
-    let runtime = RuntimeSelection {
-        node: platform.node.value.clone(),
-        source: runtime_source(platform.node.source),
+pub fn install(
+    spec: ToolPackageSpec,
+    options: InstallOptions,
+    session: &mut Session,
+) -> Fallible<InstalledTool> {
+    let runtime = resolve_new_runtime(options.node, session)?;
+    let pnpm_version = super::pnpm::resolve(VersionSpec::None, session)?;
+    install_resolved(
+        spec,
+        runtime,
+        InstallerSelection {
+            kind: InstallerKind::Pnpm,
+            version: pnpm_version,
+        },
+        InstallSettings {
+            allow_builds: normalized_allow_builds(options.allow_builds)?,
+        },
+        "installed",
+        session,
+    )
+}
+
+/// Rebuild an installed tool from its durable receipt.
+pub fn upgrade(
+    package: &str,
+    node: Option<VersionSpec>,
+    session: &mut Session,
+) -> Fallible<InstalledTool> {
+    validate_package_name(package)?;
+    let home = volta_home()?;
+    let registry = ToolRegistry::read(home.tool_registry_file())?;
+    let registered = registry
+        .tools
+        .get(package)
+        .ok_or_else(|| ErrorKind::ToolNotInstalled {
+            tool: package.to_owned(),
+        })?;
+    let current = ToolEnvironment::load(package, &registered.installation)?;
+    let spec = ToolPackageSpec::parse(current.manifest.package.requested.clone())?;
+    let runtime = match node {
+        Some(requested) => resolve_runtime(requested, session)?,
+        None => current.manifest.runtime.clone(),
     };
-    let image = platform.checkout(session)?;
+    install_resolved(
+        spec,
+        runtime,
+        current.manifest.installer.clone(),
+        current.manifest.settings.clone(),
+        "upgraded",
+        session,
+    )
+}
+
+/// Return all package identities registered as isolated tools.
+pub fn installed_package_names() -> Fallible<Vec<String>> {
+    let home = volta_home()?;
+    Ok(ToolRegistry::read(home.tool_registry_file())?
+        .tools
+        .keys()
+        .cloned()
+        .collect())
+}
+
+/// Return isolated tools whose receipts refer to an exact Node version.
+pub fn tools_using_node(version: &Version) -> Fallible<Vec<String>> {
+    let home = volta_home()?;
+    let registry = ToolRegistry::read(home.tool_registry_file())?;
+    registry
+        .tools
+        .iter()
+        .filter_map(|(package, registered)| {
+            match ToolEnvironment::load(package, &registered.installation) {
+                Ok(environment) if environment.manifest.runtime.resolved == *version => {
+                    Some(Ok(package.clone()))
+                }
+                Ok(_) => None,
+                Err(error) => Some(Err(error)),
+            }
+        })
+        .collect()
+}
+
+fn install_resolved(
+    spec: ToolPackageSpec,
+    runtime: RuntimeSelection,
+    installer: InstallerSelection,
+    settings: InstallSettings,
+    action: &str,
+    session: &mut Session,
+) -> Fallible<InstalledTool> {
+    let _lock = VoltaLock::acquire()?;
+    Node::new(runtime.resolved.clone()).ensure_fetched(session)?;
+    match installer.kind {
+        InstallerKind::Pnpm => Pnpm::new(installer.version.clone()).ensure_fetched(session)?,
+    }
 
     let home = volta_home()?;
     let staging_root = home.tmp_dir().join("tool-environments");
@@ -179,14 +280,21 @@ pub fn install(spec: ToolPackageSpec, session: &mut Session) -> Fallible<Install
         .map_err(|_| environment_metadata_error("create", &staging_root))?;
 
     write_environment_package_json(staging.path())?;
-    run_npm_install(&spec, staging.path(), &image)?;
+    create_runtime_reference(staging.path(), &runtime.resolved)?;
+    run_pnpm_install(
+        &spec,
+        &runtime.resolved,
+        &installer.version,
+        &settings,
+        staging.path(),
+    )?;
 
     let package_root = package_directory(staging.path(), spec.name());
     let root_manifest = NpmPackageManifest::read(spec.name(), &package_root)?;
     if root_manifest.name != spec.name() {
         return Err(corrupt(
             spec.name(),
-            "npm resolved a package with a different identity",
+            "pnpm resolved a package with a different identity",
         ));
     }
     let resolved_version = Version::parse(&root_manifest.version).map_err(|_| {
@@ -200,69 +308,66 @@ pub fn install(spec: ToolPackageSpec, session: &mut Session) -> Fallible<Install
     let mut registry = ToolRegistry::read(registry_path)?;
     validate_command_conflicts(spec.name(), &executables, &registry)?;
 
-    let integrities = read_lock_integrities(staging.path());
-    let scanned = scan_installed_packages(staging.path(), &integrities, spec.name())?;
-    let package_paths: BTreeSet<PathBuf> =
-        scanned.iter().map(|package| package.root.clone()).collect();
-    let store = PackageStore::new(
-        home.package_store_dir().to_owned(),
-        home.package_store_temp_dir().to_owned(),
-    );
-    let mut packages = Vec::with_capacity(scanned.len());
-
-    for package in scanned {
-        let artifact = store.intern(&package.root)?;
-        let materialization = materialize_package(&artifact, &package.root)?;
-        let dependencies = resolve_dependencies(&package, staging.path(), &package_paths);
-        packages.push(PackageNode {
-            path: package.relative,
-            name: package.manifest.name,
-            version: package.manifest.version,
-            content_hash: artifact.content_hash.as_str().to_owned(),
-            registry_integrity: package.registry_integrity,
-            dependencies,
-            materialization,
-        });
-    }
-    packages.sort_by(|left, right| left.path.cmp(&right.path));
-
-    let mut tool_manifest = ToolManifest {
-        schema_version: 1,
+    let mut manifest = ToolManifest {
+        schema_version: 2,
         installation_id: String::new(),
-        requested: spec.requested().to_owned(),
-        package: spec.name().to_owned(),
-        resolved_version,
+        package: PackageSelection {
+            requested: spec.requested().to_owned(),
+            name: spec.name().to_owned(),
+            resolved: resolved_version,
+        },
         runtime,
+        installer,
+        settings,
         executables,
-        packages,
+        lockfile_integrity: file_integrity(spec.name(), &staging.path().join(LOCKFILE))?,
     };
-    tool_manifest.installation_id = installation_id(&tool_manifest)?;
-    tool_manifest.write(staging.path())?;
+    manifest.installation_id = installation_id(&manifest)?;
+    manifest.write(staging.path())?;
 
-    let final_dir = home.tool_installation_dir(spec.name(), &tool_manifest.installation_id);
-    let published_new = publish_environment(staging, &final_dir, &tool_manifest)?;
+    publish_and_register(
+        spec.name(),
+        staging,
+        manifest,
+        &mut registry,
+        registry_path,
+        action,
+    )
+}
+
+fn publish_and_register(
+    package: &str,
+    staging: TempDir,
+    manifest: ToolManifest,
+    registry: &mut ToolRegistry,
+    registry_path: &Path,
+    action: &str,
+) -> Fallible<InstalledTool> {
+    let home = volta_home()?;
+    let final_dir = home.tool_installation_dir(package, &manifest.installation_id);
+    let published_new = publish_environment(staging, &final_dir, &manifest)?;
     let old_installation = registry
         .tools
-        .get(spec.name())
+        .get(package)
         .map(|registered| registered.installation.clone());
     let old_commands = registry
         .tools
-        .get(spec.name())
+        .get(package)
         .map(|registered| registered.executables.clone())
         .unwrap_or_default();
 
     registry
         .commands
-        .retain(|_, command| command.package != spec.name());
-    let command_names = tool_manifest
+        .retain(|_, command| command.package != package);
+    let command_names = manifest
         .executables
         .iter()
         .map(|executable| executable.name.clone())
         .collect::<Vec<_>>();
     registry.tools.insert(
-        spec.name().to_owned(),
+        package.to_owned(),
         RegisteredTool {
-            installation: tool_manifest.installation_id.clone(),
+            installation: manifest.installation_id.clone(),
             executables: command_names.clone(),
         },
     );
@@ -270,18 +375,14 @@ pub fn install(spec: ToolPackageSpec, session: &mut Session) -> Fallible<Install
         registry.commands.insert(
             command.clone(),
             RegisteredCommand {
-                package: spec.name().to_owned(),
-                installation: tool_manifest.installation_id.clone(),
+                package: package.to_owned(),
+                installation: manifest.installation_id.clone(),
             },
         );
     }
 
     let mut created_shims = Vec::new();
     for command in &command_names {
-        // In particular, the Windows shim writer replaces an existing .cmd
-        // file and reports it as newly created. Leave an old installation's
-        // shim untouched so rollback can never delete a previously working
-        // command.
         if fs::symlink_metadata(home.shim_file(command)).is_ok() {
             continue;
         }
@@ -292,8 +393,6 @@ pub fn install(spec: ToolPackageSpec, session: &mut Session) -> Fallible<Install
                 unreachable!("shim creation cannot report deletion")
             }
             Err(error) => {
-                // `shim::create` may have produced one of multiple Windows
-                // launcher files before the other write failed.
                 let _ = shim::delete(command);
                 rollback_shims(&created_shims);
                 if published_new {
@@ -313,8 +412,8 @@ pub fn install(spec: ToolPackageSpec, session: &mut Session) -> Fallible<Install
 
     remove_stale_shims(&old_commands, &command_names);
     if let Some(old) = old_installation {
-        if old != tool_manifest.installation_id {
-            let old_dir = home.tool_installation_dir(spec.name(), &old);
+        if old != manifest.installation_id {
+            let old_dir = home.tool_installation_dir(package, &old);
             if let Err(error) = remove_environment(&old_dir) {
                 warn!(
                     "Unable to remove superseded tool environment at {}: {}",
@@ -329,13 +428,20 @@ pub fn install(spec: ToolPackageSpec, session: &mut Session) -> Fallible<Install
         check_shim_reachable(command);
     }
     info!(
-        "{} installed {} with executables: {}",
+        "{} {} {} with executables: {}",
         success_prefix(),
-        tool_version(spec.name(), &tool_manifest.resolved_version),
+        action,
+        tool_version(package, &manifest.package.resolved),
         command_names.join(", ")
     );
-
-    Ok(InstalledTool::from(&tool_manifest))
+    let environment = ToolEnvironment {
+        root: final_dir,
+        manifest,
+    };
+    Ok(InstalledTool::from_manifest(
+        &environment.manifest,
+        environment.runtime_available()?,
+    ))
 }
 
 /// Uninstall a current isolated tool environment without touching legacy installs.
@@ -357,10 +463,9 @@ pub fn uninstall(package: &str) -> Fallible<()> {
     registry.write(registry_path)?;
 
     for command in &registered.executables {
-        if legacy_bin_exists(command) {
-            continue;
+        if !legacy_bin_exists(command) {
+            shim::delete(command)?;
         }
-        shim::delete(command)?;
     }
     remove_environment(&home.tool_environment_dir(package))?;
     info!("{} tool '{}' uninstalled", success_prefix(), package);
@@ -375,8 +480,12 @@ pub fn list() -> Fallible<Vec<InstalledTool>> {
         .tools
         .iter()
         .map(|(package, registered)| {
-            ToolEnvironment::load(package, &registered.installation)
-                .map(|environment| (&environment.manifest).into())
+            let environment = ToolEnvironment::load(package, &registered.installation)?;
+            let runtime_available = environment.runtime_available()?;
+            Ok(InstalledTool::from_manifest(
+                &environment.manifest,
+                runtime_available,
+            ))
         })
         .collect()
 }
@@ -454,47 +563,50 @@ pub(crate) fn resolve_selector(selector: &str) -> Fallible<ResolvedToolCommand> 
     }
 }
 
-fn split_package_spec(raw: &str) -> Fallible<(&str, Option<&str>)> {
-    if raw.is_empty() {
-        return Err(ErrorKind::ParseToolSpecError {
-            tool_spec: raw.to_owned(),
+fn resolve_new_runtime(
+    requested: Option<VersionSpec>,
+    session: &mut Session,
+) -> Fallible<RuntimeSelection> {
+    match requested {
+        Some(requested) => resolve_runtime(requested, session),
+        None => {
+            let resolved = session
+                .default_platform()?
+                .map(|platform| platform.node.clone())
+                .ok_or(ErrorKind::NoPlatform)?;
+            Ok(RuntimeSelection {
+                requested: resolved.to_string(),
+                resolved,
+            })
         }
-        .into());
-    }
-
-    if raw.starts_with('@') {
-        let slash = raw.find('/').ok_or_else(|| ErrorKind::ParseToolSpecError {
-            tool_spec: raw.to_owned(),
-        })?;
-        if let Some(relative_at) = raw[slash + 1..].rfind('@') {
-            let at = slash + 1 + relative_at;
-            return Ok((&raw[..at], Some(&raw[at + 1..])));
-        }
-        Ok((raw, None))
-    } else if let Some((name, version)) = raw.rsplit_once('@') {
-        Ok((name, Some(version)))
-    } else {
-        Ok((raw, None))
     }
 }
 
-fn validate_package_name(name: &str) -> Fallible<()> {
-    match validate(name) {
-        Validity::Valid | Validity::ValidForOldPackages { .. } => Ok(()),
-        Validity::Invalid { errors, .. } => Err(ErrorKind::InvalidToolName {
-            name: name.to_owned(),
-            errors,
-        }
-        .into()),
-    }
+fn resolve_runtime(requested: VersionSpec, session: &mut Session) -> Fallible<RuntimeSelection> {
+    let request = requested.to_string();
+    let resolved = super::node::resolve(requested, session)?;
+    Ok(RuntimeSelection {
+        requested: request,
+        resolved,
+    })
 }
 
-fn runtime_source(source: Source) -> RuntimeSource {
-    match source {
-        Source::Project => RuntimeSource::Project,
-        Source::Default | Source::Binary => RuntimeSource::Default,
-        Source::CommandLine => RuntimeSource::CommandLine,
+fn normalized_allow_builds(mut packages: Vec<String>) -> Fallible<Vec<String>> {
+    for package in &packages {
+        validate_package_name(package)?;
     }
+    packages.sort();
+    packages.dedup();
+    Ok(packages)
+}
+
+fn create_runtime_reference(environment: &Path, version: &Version) -> Fallible<()> {
+    let home = volta_home()?;
+    let link = environment.join(RUNTIME_LINK);
+    let parent = link.parent().expect("runtime link has a parent");
+    fs::create_dir_all(parent).map_err(|_| environment_metadata_error("create", parent))?;
+    symlink_dir(home.node_image_dir(&version.to_string()), &link)
+        .map_err(|_| environment_metadata_error("link", &link))
 }
 
 fn write_environment_package_json(root: &Path) -> Fallible<()> {
@@ -511,28 +623,49 @@ fn write_environment_package_json(root: &Path) -> Fallible<()> {
     .map_err(|_| environment_metadata_error("serialize", &path))
 }
 
-fn run_npm_install(
+fn run_pnpm_install(
     spec: &ToolPackageSpec,
+    node: &Version,
+    pnpm: &Version,
+    settings: &InstallSettings,
     staging: &Path,
-    image: &crate::platform::Image,
 ) -> Fallible<()> {
-    let mut command = create_command("npm");
-    command.args([
-        "install",
-        "--global=false",
-        "--loglevel=warn",
-        "--no-update-notifier",
-        "--no-audit",
-        "--fund=false",
-        "--bin-links=true",
-        "--package-lock=true",
-        "--save-exact",
-    ]);
-    command.arg("--prefix").arg(staging);
-    command.arg("--");
+    let home = volta_home()?;
+    let image = crate::platform::Image {
+        node: Sourced::with_binary(node.clone()),
+        npm: None,
+        pnpm: Some(Sourced::with_binary(pnpm.clone())),
+        yarn: None,
+    };
+    let store = home.pnpm_store_dir();
+    let pnpm_home = home.pnpm_home_dir();
+    fs::create_dir_all(pnpm_home).map_err(|_| environment_metadata_error("create", pnpm_home))?;
+
+    let mut command = create_command("pnpm");
+    command.arg("--reporter=append-only");
+    command.arg(format!("--store-dir={}", store.display()));
+    command.arg("add");
+    for package in &settings.allow_builds {
+        command.arg(format!("--allow-build={package}"));
+    }
+    command.args(["--save-exact", "--ignore-workspace-root-check"]);
     command.arg(spec.requested());
     command.current_dir(staging);
     command.env("PATH", image.path()?);
+    command.env("PNPM_HOME", pnpm_home);
+    // pnpm 10 reads npm_config_* while newer pnpm versions prefer
+    // pnpm_config_*. Set both so the isolated layout does not depend on user
+    // configuration; the supported store-dir CLI flag remains authoritative.
+    command.env("npm_config_store_dir", store);
+    command.env("pnpm_config_store_dir", store);
+    command.env("npm_config_node_linker", "isolated");
+    command.env("pnpm_config_node_linker", "isolated");
+    command.env("npm_config_virtual_store_dir", "node_modules/.pnpm");
+    command.env("pnpm_config_virtual_store_dir", "node_modules/.pnpm");
+    command.env("npm_config_enable_global_virtual_store", "false");
+    command.env("pnpm_config_enable_global_virtual_store", "false");
+    command.env("pnpm_config_manage_package_manager_versions", "false");
+    command.env("COREPACK_ENABLE_PROJECT_SPEC", "0");
     command.env_remove("npm_config_global");
     command.env_remove("npm_config_location");
     command.env_remove("npm_config_prefix");
@@ -554,7 +687,7 @@ fn run_npm_install(
     );
     if output.status.success() {
         Ok(())
-    } else if stderr.contains("code E404") {
+    } else if stderr.contains("ERR_PNPM_FETCH_404") || stderr.contains("404 Not Found") {
         Err(ErrorKind::PackageNotFound {
             package: spec.requested().to_owned(),
         }
@@ -595,7 +728,7 @@ fn discover_executables(
     let package_root_canonical = fs::canonicalize(package_root).map_err(|_| {
         corrupt(
             spec.name(),
-            "npm did not create the requested package directory",
+            "pnpm did not create the requested package directory",
         )
     })?;
     let mut executables = Vec::with_capacity(bins.len());
@@ -608,16 +741,10 @@ fn discover_executables(
                 &format!("executable '{}' points to a missing file", name),
             )
         })?;
-        if !target.starts_with(&package_root_canonical) {
+        if !target.starts_with(&package_root_canonical) || !target.is_file() {
             return Err(corrupt(
                 spec.name(),
                 &format!("executable '{}' escapes the package directory", name),
-            ));
-        }
-        if !target.is_file() {
-            return Err(corrupt(
-                spec.name(),
-                &format!("executable '{}' does not point to a file", name),
             ));
         }
 
@@ -626,7 +753,7 @@ fn discover_executables(
         if !launcher.is_file() {
             return Err(corrupt(
                 spec.name(),
-                &format!("npm did not create the '{}' executable", name),
+                &format!("pnpm did not create the '{}' executable", name),
             ));
         }
         executables.push(Executable {
@@ -683,6 +810,28 @@ fn environment_bin_path(name: &str) -> PathBuf {
     return path.join(name);
 }
 
+fn file_integrity(package: &str, path: &Path) -> Fallible<String> {
+    let mut file = File::open(path).map_err(|_| {
+        corrupt(
+            package,
+            &format!("required file '{}' is missing", path.display()),
+        )
+    })?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"volta-tool-file-v1\0");
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|_| corrupt(package, "could not read an environment file"))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
 fn executable_integrity(package: &str, path: &Path) -> Fallible<String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|_| corrupt(package, "could not inspect an executable launcher"))?;
@@ -721,391 +870,7 @@ fn executable_integrity(package: &str, path: &Path) -> Fallible<String> {
             "executable launcher has an unsupported filesystem type",
         ));
     }
-
     Ok(format!("sha256:{:x}", hasher.finalize()))
-}
-
-#[derive(Debug)]
-struct ScannedPackage {
-    root: PathBuf,
-    relative: String,
-    manifest: NpmPackageManifest,
-    registry_integrity: Option<String>,
-}
-
-fn scan_installed_packages(
-    environment: &Path,
-    integrities: &BTreeMap<String, String>,
-    requested_package: &str,
-) -> Fallible<Vec<ScannedPackage>> {
-    let mut packages = Vec::new();
-    scan_node_modules(
-        environment,
-        &environment.join("node_modules"),
-        integrities,
-        requested_package,
-        &mut packages,
-    )?;
-    if !packages
-        .iter()
-        .any(|package| package.relative == format!("node_modules/{}", requested_package))
-    {
-        return Err(corrupt(
-            requested_package,
-            "the requested package is absent from npm's resolved dependency graph",
-        ));
-    }
-    Ok(packages)
-}
-
-fn scan_node_modules(
-    environment: &Path,
-    node_modules: &Path,
-    integrities: &BTreeMap<String, String>,
-    requested_package: &str,
-    packages: &mut Vec<ScannedPackage>,
-) -> Fallible<()> {
-    let mut entries = fs::read_dir(node_modules)
-        .map_err(|_| corrupt(requested_package, "npm did not create node_modules"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| {
-            corrupt(
-                requested_package,
-                "could not inspect npm's dependency graph",
-            )
-        })?;
-    entries.sort_by_key(|entry| entry.file_name());
-
-    for entry in entries {
-        let name = entry.file_name();
-        if name.to_string_lossy().starts_with('.') {
-            continue;
-        }
-        let file_type = entry
-            .file_type()
-            .map_err(|_| corrupt(requested_package, "could not inspect a dependency"))?;
-        if !file_type.is_dir() {
-            if file_type.is_symlink() {
-                return Err(corrupt(
-                    requested_package,
-                    "linked npm dependencies are not supported in persistent tool environments",
-                ));
-            }
-            continue;
-        }
-
-        if name.to_string_lossy().starts_with('@') {
-            let mut scoped = fs::read_dir(entry.path())
-                .map_err(|_| corrupt(requested_package, "could not inspect a package scope"))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|_| corrupt(requested_package, "could not inspect a package scope"))?;
-            scoped.sort_by_key(|entry| entry.file_name());
-            for package in scoped {
-                add_scanned_package(
-                    environment,
-                    &package.path(),
-                    integrities,
-                    requested_package,
-                    packages,
-                )?;
-            }
-        } else {
-            add_scanned_package(
-                environment,
-                &entry.path(),
-                integrities,
-                requested_package,
-                packages,
-            )?;
-        }
-    }
-    Ok(())
-}
-
-fn add_scanned_package(
-    environment: &Path,
-    package_root: &Path,
-    integrities: &BTreeMap<String, String>,
-    requested_package: &str,
-    packages: &mut Vec<ScannedPackage>,
-) -> Fallible<()> {
-    let metadata = fs::symlink_metadata(package_root)
-        .map_err(|_| corrupt(requested_package, "could not inspect a dependency package"))?;
-    if !metadata.is_dir() {
-        return Err(corrupt(
-            requested_package,
-            "linked npm dependencies are not supported in persistent tool environments",
-        ));
-    }
-    let relative = manifest_path(environment, package_root)?;
-    let manifest = NpmPackageManifest::read(&relative, package_root)?;
-    packages.push(ScannedPackage {
-        root: package_root.to_owned(),
-        registry_integrity: integrities.get(&relative).cloned(),
-        relative,
-        manifest,
-    });
-    let nested = package_root.join("node_modules");
-    if nested.is_dir() {
-        scan_node_modules(
-            environment,
-            &nested,
-            integrities,
-            requested_package,
-            packages,
-        )?;
-    }
-    Ok(())
-}
-
-fn manifest_path(environment: &Path, path: &Path) -> Fallible<String> {
-    let relative = path
-        .strip_prefix(environment)
-        .map_err(|_| environment_metadata_error("inspect", path))?;
-    let parts = relative
-        .components()
-        .map(|component| match component {
-            Component::Normal(value) => value
-                .to_str()
-                .map(ToOwned::to_owned)
-                .ok_or_else(|| environment_metadata_error("inspect", path)),
-            _ => Err(environment_metadata_error("inspect", path)),
-        })
-        .collect::<Fallible<Vec<_>>>()?;
-    Ok(parts.join("/"))
-}
-
-fn read_lock_integrities(environment: &Path) -> BTreeMap<String, String> {
-    let path = environment.join("package-lock.json");
-    let Ok(file) = File::open(path) else {
-        return BTreeMap::new();
-    };
-    let Ok(lockfile) = serde_json::from_reader::<_, serde_json::Value>(file) else {
-        return BTreeMap::new();
-    };
-    lockfile
-        .get("packages")
-        .and_then(serde_json::Value::as_object)
-        .into_iter()
-        .flatten()
-        .filter_map(|(path, metadata)| {
-            metadata
-                .get("integrity")
-                .and_then(serde_json::Value::as_str)
-                .map(|integrity| (path.clone(), integrity.to_owned()))
-        })
-        .collect()
-}
-
-fn resolve_dependencies(
-    package: &ScannedPackage,
-    environment: &Path,
-    package_paths: &BTreeSet<PathBuf>,
-) -> Vec<DependencyEdge> {
-    let mut dependencies = Vec::new();
-    push_dependency_edges(
-        &mut dependencies,
-        DependencyKind::Production,
-        package.manifest.dependencies.keys(),
-        package,
-        environment,
-        package_paths,
-    );
-    push_dependency_edges(
-        &mut dependencies,
-        DependencyKind::Optional,
-        package.manifest.optional_dependencies.keys(),
-        package,
-        environment,
-        package_paths,
-    );
-    push_dependency_edges(
-        &mut dependencies,
-        DependencyKind::Peer,
-        package.manifest.peer_dependencies.keys(),
-        package,
-        environment,
-        package_paths,
-    );
-    dependencies.sort_by(|left, right| {
-        left.name
-            .cmp(&right.name)
-            .then_with(|| format!("{:?}", left.kind).cmp(&format!("{:?}", right.kind)))
-    });
-    dependencies
-}
-
-fn push_dependency_edges<'a>(
-    edges: &mut Vec<DependencyEdge>,
-    kind: DependencyKind,
-    names: impl Iterator<Item = &'a String>,
-    package: &ScannedPackage,
-    environment: &Path,
-    package_paths: &BTreeSet<PathBuf>,
-) {
-    for name in names {
-        let target = if validate(name).valid_for_old_packages() {
-            resolve_dependency_path(&package.root, name, environment, package_paths)
-                .and_then(|path| manifest_path(environment, &path).ok())
-        } else {
-            None
-        };
-        edges.push(DependencyEdge {
-            name: name.clone(),
-            kind,
-            target,
-        });
-    }
-}
-
-fn resolve_dependency_path(
-    package_root: &Path,
-    dependency: &str,
-    environment: &Path,
-    package_paths: &BTreeSet<PathBuf>,
-) -> Option<PathBuf> {
-    let mut cursor = Some(package_root);
-    while let Some(directory) = cursor {
-        let candidate = directory.join("node_modules").join(dependency);
-        if package_paths.contains(&candidate) {
-            return Some(candidate);
-        }
-        if directory == environment {
-            break;
-        }
-        cursor = directory.parent();
-    }
-    None
-}
-
-fn materialize_package(
-    artifact: &PackageArtifact,
-    package_root: &Path,
-) -> Fallible<MaterializationSummary> {
-    remove_package_contents(package_root)?;
-    let mut summary = MaterializationSummary::default();
-    materialize_directory(&artifact.path, package_root, &mut summary)?;
-    Ok(summary)
-}
-
-fn remove_package_contents(package_root: &Path) -> Fallible<()> {
-    for entry in fs::read_dir(package_root)
-        .map_err(|_| environment_metadata_error("inspect", package_root))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| environment_metadata_error("inspect", package_root))?
-    {
-        if entry.file_name() == OsStr::new("node_modules") {
-            continue;
-        }
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|_| environment_metadata_error("inspect", &path))?;
-        if file_type.is_dir() {
-            fs::remove_dir_all(&path)
-        } else {
-            fs::remove_file(&path)
-        }
-        .map_err(|_| environment_metadata_error("replace", &path))?;
-    }
-    Ok(())
-}
-
-fn materialize_directory(
-    store_dir: &Path,
-    environment_dir: &Path,
-    summary: &mut MaterializationSummary,
-) -> Fallible<()> {
-    fs::create_dir_all(environment_dir)
-        .map_err(|_| environment_metadata_error("create", environment_dir))?;
-    let mut entries = fs::read_dir(store_dir)
-        .map_err(|_| environment_metadata_error("read", store_dir))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| environment_metadata_error("read", store_dir))?;
-    entries.sort_by_key(|entry| entry.file_name());
-
-    for entry in entries {
-        let source = entry.path();
-        let destination = environment_dir.join(entry.file_name());
-        let file_type = entry
-            .file_type()
-            .map_err(|_| environment_metadata_error("inspect", &source))?;
-        if file_type.is_dir() {
-            materialize_directory(&source, &destination, summary)?;
-        } else if file_type.is_file() {
-            #[cfg(unix)]
-            match fs::hard_link(&source, &destination) {
-                Ok(()) => summary.hard_links += 1,
-                Err(_) => {
-                    copy_environment_file(&source, &destination)?;
-                    summary.copies += 1;
-                }
-            }
-            // A Windows read-only attribute belongs to the shared file behind
-            // all of its hard links. Clearing it to uninstall an environment
-            // would therefore make the store entry writable too, so Windows
-            // environments use independent writable copies.
-            #[cfg(windows)]
-            {
-                copy_environment_file(&source, &destination)?;
-                summary.copies += 1;
-            }
-        } else if file_type.is_symlink() {
-            materialize_symlink(&source, &destination)?;
-            summary.symlinks += 1;
-        } else {
-            return Err(environment_metadata_error("materialize", &source));
-        }
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn materialize_symlink(source: &Path, destination: &Path) -> Fallible<()> {
-    let target = fs::read_link(source).map_err(|_| environment_metadata_error("read", source))?;
-    std::os::unix::fs::symlink(target, destination)
-        .map_err(|_| environment_metadata_error("link", destination))
-}
-
-#[cfg(windows)]
-fn materialize_symlink(source: &Path, destination: &Path) -> Fallible<()> {
-    let target = fs::read_link(source).map_err(|_| environment_metadata_error("read", source))?;
-    let resolved = source
-        .parent()
-        .expect("stored symlink has a parent")
-        .join(&target);
-    let result = if resolved.is_dir() {
-        std::os::windows::fs::symlink_dir(&target, destination)
-    } else {
-        std::os::windows::fs::symlink_file(&target, destination)
-    };
-    if result.is_ok() {
-        return Ok(());
-    }
-
-    // Windows may disallow symlink creation without Developer Mode. Dereference
-    // only the already-validated in-package target and make a plain copy.
-    if resolved.is_dir() {
-        let mut ignored = MaterializationSummary::default();
-        materialize_directory(&resolved, destination, &mut ignored)
-    } else {
-        copy_environment_file(&resolved, destination)
-    }
-}
-
-fn copy_environment_file(source: &Path, destination: &Path) -> Fallible<()> {
-    fs::copy(source, destination).map_err(|_| environment_metadata_error("copy", destination))?;
-    #[cfg(windows)]
-    {
-        let mut permissions = fs::metadata(destination)
-            .map_err(|_| environment_metadata_error("inspect", destination))?
-            .permissions();
-        #[allow(clippy::permissions_set_readonly_false)]
-        permissions.set_readonly(false);
-        fs::set_permissions(destination, permissions)
-            .map_err(|_| environment_metadata_error("update permissions for", destination))?;
-    }
-    Ok(())
 }
 
 fn installation_id(manifest: &ToolManifest) -> Fallible<String> {
@@ -1127,10 +892,44 @@ fn validate_installation_id(manifest: &ToolManifest) -> Fallible<()> {
         Ok(())
     } else {
         Err(corrupt(
-            &manifest.package,
+            &manifest.package.name,
             "environment manifest does not match its installation identifier",
         ))
     }
+}
+
+fn validate_lockfile(manifest: &ToolManifest, root: &Path) -> Fallible<()> {
+    if file_integrity(&manifest.package.name, &root.join(LOCKFILE))? == manifest.lockfile_integrity
+    {
+        Ok(())
+    } else {
+        Err(corrupt(
+            &manifest.package.name,
+            "pnpm lockfile failed integrity verification",
+        ))
+    }
+}
+
+fn validate_runtime_reference(manifest: &ToolManifest, root: &Path) -> Fallible<()> {
+    let link = root.join(RUNTIME_LINK);
+    fs::symlink_metadata(&link)
+        .map_err(|_| corrupt(&manifest.package.name, "runtime reference is missing"))?;
+
+    #[cfg(unix)]
+    {
+        let expected = volta_home()?
+            .node_image_dir(&manifest.runtime.resolved.to_string())
+            .to_owned();
+        let actual = fs::read_link(&link)
+            .map_err(|_| corrupt(&manifest.package.name, "runtime reference is not a link"))?;
+        if actual != expected {
+            return Err(corrupt(
+                &manifest.package.name,
+                "runtime reference points to a different Node version",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn publish_environment(
@@ -1147,7 +946,9 @@ fn publish_environment(
         let existing = ToolManifest::read(&destination.join(MANIFEST_FILE))?;
         validate_manifest_identity(&existing, expected)?;
         validate_installation_id(&existing)?;
+        validate_lockfile(&existing, destination)?;
         validate_executable_files(&existing, destination)?;
+        validate_runtime_reference(&existing, destination)?;
         return Ok(false);
     }
 
@@ -1158,12 +959,13 @@ fn publish_environment(
 }
 
 fn validate_manifest_identity(existing: &ToolManifest, expected: &ToolManifest) -> Fallible<()> {
-    if existing.package == expected.package && existing.installation_id == expected.installation_id
+    if existing.package.name == expected.package.name
+        && existing.installation_id == expected.installation_id
     {
         Ok(())
     } else {
         Err(corrupt(
-            &expected.package,
+            &expected.package.name,
             "an installation identifier points to different metadata",
         ))
     }
@@ -1269,26 +1071,26 @@ fn legacy_bin_exists(command: &str) -> bool {
 fn validate_executable_files(manifest: &ToolManifest, root: &Path) -> Fallible<()> {
     for executable in &manifest.executables {
         if safe_relative_path(
-            &manifest.package,
+            &manifest.package.name,
             executable.path.to_string_lossy().as_ref(),
         )? != executable.path
         {
             return Err(corrupt(
-                &manifest.package,
+                &manifest.package.name,
                 "manifest contains an unsafe executable path",
             ));
         }
         if !root.join(&executable.path).is_file() {
             return Err(corrupt(
-                &manifest.package,
+                &manifest.package.name,
                 &format!("executable '{}' is missing", executable.name),
             ));
         }
-        if executable_integrity(&manifest.package, &root.join(&executable.path))?
+        if executable_integrity(&manifest.package.name, &root.join(&executable.path))?
             != executable.integrity
         {
             return Err(corrupt(
-                &manifest.package,
+                &manifest.package.name,
                 &format!(
                     "executable '{}' failed integrity verification",
                     executable.name
@@ -1319,6 +1121,40 @@ fn validate_registry_reference(package: &str, installation: &str) -> Fallible<()
             "tool registry",
             "registry contains an unsafe environment reference",
         ))
+    }
+}
+
+fn split_package_spec(raw: &str) -> Fallible<(&str, Option<&str>)> {
+    if raw.is_empty() {
+        return Err(ErrorKind::ParseToolSpecError {
+            tool_spec: raw.to_owned(),
+        }
+        .into());
+    }
+    if raw.starts_with('@') {
+        let slash = raw.find('/').ok_or_else(|| ErrorKind::ParseToolSpecError {
+            tool_spec: raw.to_owned(),
+        })?;
+        if let Some(relative_at) = raw[slash + 1..].rfind('@') {
+            let at = slash + 1 + relative_at;
+            return Ok((&raw[..at], Some(&raw[at + 1..])));
+        }
+        Ok((raw, None))
+    } else if let Some((name, version)) = raw.rsplit_once('@') {
+        Ok((name, Some(version)))
+    } else {
+        Ok((raw, None))
+    }
+}
+
+fn validate_package_name(name: &str) -> Fallible<()> {
+    match validate(name) {
+        Validity::Valid | Validity::ValidForOldPackages { .. } => Ok(()),
+        Validity::Invalid { errors, .. } => Err(ErrorKind::InvalidToolName {
+            name: name.to_owned(),
+            errors,
+        }
+        .into()),
     }
 }
 
@@ -1354,10 +1190,6 @@ fn corrupt(package: &str, reason: &str) -> crate::error::VoltaError {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use tempfile::tempdir;
-
     use super::*;
 
     #[test]
@@ -1393,26 +1225,11 @@ mod tests {
     }
 
     #[test]
-    fn resolves_nested_and_hoisted_dependencies_by_node_topology() {
-        let temp = tempdir().expect("temp directory");
-        let root = temp.path();
-        let package = root.join("node_modules/tool");
-        let nested = package.join("node_modules/dependency");
-        let hoisted = root.join("node_modules/hoisted");
-        for path in [&package, &nested, &hoisted] {
-            fs::create_dir_all(path).expect("package directory");
-        }
-        let paths = [package.clone(), nested.clone(), hoisted.clone()]
-            .into_iter()
-            .collect();
-
+    fn normalizes_allowed_build_packages() {
         assert_eq!(
-            resolve_dependency_path(&package, "dependency", root, &paths),
-            Some(nested)
-        );
-        assert_eq!(
-            resolve_dependency_path(&package, "hoisted", root, &paths),
-            Some(hoisted)
+            normalized_allow_builds(vec!["zod".into(), "esbuild".into(), "zod".into()])
+                .expect("valid packages"),
+            vec!["esbuild", "zod"]
         );
     }
 

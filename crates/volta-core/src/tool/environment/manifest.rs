@@ -8,18 +8,24 @@ use crate::error::{ErrorKind, Fallible};
 use crate::version::version_serde;
 
 pub(super) const MANIFEST_FILE: &str = "volta-tool.json";
+pub(super) const LOCKFILE: &str = "pnpm-lock.yaml";
+pub(super) const RUNTIME_LINK: &str = "runtime/node";
 
+/// The durable receipt for one immutable JavaScript CLI environment.
+///
+/// Package topology belongs to pnpm and is persisted in `pnpm-lock.yaml`.
+/// Volta records only the inputs needed to recreate the environment and the
+/// runtime and executable references needed to execute it safely.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(super) struct ToolManifest {
     pub(super) schema_version: u32,
     pub(super) installation_id: String,
-    pub(super) requested: String,
-    pub(super) package: String,
-    #[serde(with = "version_serde")]
-    pub(super) resolved_version: Version,
+    pub(super) package: PackageSelection,
     pub(super) runtime: RuntimeSelection,
+    pub(super) installer: InstallerSelection,
+    pub(super) settings: InstallSettings,
     pub(super) executables: Vec<Executable>,
-    pub(super) packages: Vec<PackageNode>,
+    pub(super) lockfile_integrity: String,
 }
 
 impl ToolManifest {
@@ -27,11 +33,11 @@ impl ToolManifest {
         let file = File::open(path).map_err(|_| metadata_error("read", path))?;
         let manifest: Self =
             serde_json::from_reader(file).map_err(|_| metadata_error("parse", path))?;
-        if manifest.schema_version != 1 {
+        if manifest.schema_version != 2 {
             return Err(ErrorKind::ToolEnvironmentCorrupt {
-                package: manifest.package,
+                package: manifest.package.name,
                 reason: format!(
-                    "unsupported tool manifest schema {}",
+                    "unsupported tool manifest schema {} (Volta 3 requires schema 2)",
                     manifest.schema_version
                 ),
             }
@@ -48,18 +54,39 @@ impl ToolManifest {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(super) struct RuntimeSelection {
+pub(super) struct PackageSelection {
+    /// The complete npm package selector supplied at install time.
+    pub(super) requested: String,
+    pub(super) name: String,
     #[serde(with = "version_serde")]
-    pub(super) node: Version,
-    pub(super) source: RuntimeSource,
+    pub(super) resolved: Version,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(super) enum RuntimeSource {
-    Project,
-    Default,
-    CommandLine,
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(super) struct RuntimeSelection {
+    /// The user-provided Node request, or the exact default selected at install time.
+    pub(super) requested: String,
+    #[serde(with = "version_serde")]
+    pub(super) resolved: Version,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(super) struct InstallerSelection {
+    pub(super) kind: InstallerKind,
+    #[serde(with = "version_serde")]
+    pub(super) version: Version,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum InstallerKind {
+    Pnpm,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub(super) struct InstallSettings {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) allow_builds: Vec<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -69,44 +96,6 @@ pub(super) struct Executable {
     pub(super) integrity: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(super) struct PackageNode {
-    /// Package path relative to the tool-environment root. This path is the
-    /// node's identity in the resolved Node module topology.
-    pub(super) path: String,
-    pub(super) name: String,
-    pub(super) version: String,
-    pub(super) content_hash: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) registry_integrity: Option<String>,
-    pub(super) dependencies: Vec<DependencyEdge>,
-    pub(super) materialization: MaterializationSummary,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(super) struct DependencyEdge {
-    pub(super) name: String,
-    pub(super) kind: DependencyKind,
-    /// Resolved target path relative to the environment, or `None` for an
-    /// optional/peer dependency that npm did not materialize.
-    pub(super) target: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(super) enum DependencyKind {
-    Production,
-    Optional,
-    Peer,
-}
-
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub(super) struct MaterializationSummary {
-    pub(super) hard_links: u64,
-    pub(super) copies: u64,
-    pub(super) symlinks: u64,
-}
-
 /// Stable, presentation-oriented information returned by `volta tool list`.
 #[derive(Clone, Debug)]
 pub struct InstalledTool {
@@ -114,23 +103,25 @@ pub struct InstalledTool {
     pub requested: String,
     pub version: Version,
     pub node: Version,
+    pub installer: Version,
     pub executables: Vec<String>,
-    pub package_count: usize,
+    pub runtime_available: bool,
 }
 
-impl From<&ToolManifest> for InstalledTool {
-    fn from(manifest: &ToolManifest) -> Self {
+impl InstalledTool {
+    pub(super) fn from_manifest(manifest: &ToolManifest, runtime_available: bool) -> Self {
         Self {
-            package: manifest.package.clone(),
-            requested: manifest.requested.clone(),
-            version: manifest.resolved_version.clone(),
-            node: manifest.runtime.node.clone(),
+            package: manifest.package.name.clone(),
+            requested: manifest.package.requested.clone(),
+            version: manifest.package.resolved.clone(),
+            node: manifest.runtime.resolved.clone(),
+            installer: manifest.installer.version.clone(),
             executables: manifest
                 .executables
                 .iter()
                 .map(|executable| executable.name.clone())
                 .collect(),
-            package_count: manifest.packages.len(),
+            runtime_available,
         }
     }
 }
@@ -141,12 +132,6 @@ pub(super) struct NpmPackageManifest {
     pub(super) version: String,
     #[serde(default)]
     pub(super) bin: Option<NpmBins>,
-    #[serde(default)]
-    pub(super) dependencies: BTreeMap<String, String>,
-    #[serde(default, rename = "optionalDependencies")]
-    pub(super) optional_dependencies: BTreeMap<String, String>,
-    #[serde(default, rename = "peerDependencies")]
-    pub(super) peer_dependencies: BTreeMap<String, String>,
 }
 
 impl NpmPackageManifest {

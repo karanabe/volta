@@ -89,6 +89,21 @@ impl Toolchain {
         Ok(())
     }
 
+    /// Remove the default platform if it uses the supplied Node version.
+    pub fn clear_active_node(&mut self, node_version: &Version) -> Fallible<bool> {
+        if self
+            .platform
+            .as_ref()
+            .is_some_and(|platform| platform.node == *node_version)
+        {
+            self.platform = None;
+            self.save()?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Set the active Yarn version in the default platform file.
     pub fn set_active_yarn(&mut self, yarn: Option<Version>) -> Fallible<()> {
         if let Some(platform) = self.platform.as_mut() {

@@ -40,8 +40,8 @@ layout! {
             }
         }
         "store": store_dir {
-            "packages": package_store_dir {}
-            "tmp": package_store_temp_dir {}
+            "pnpm": pnpm_store_dir {}
+            "pnpm-home": pnpm_home_dir {}
         }
         "tmp": tmp_dir {}
         "hooks.json": default_hooks_file;
@@ -125,11 +125,6 @@ impl VoltaHome {
             "installations",
             installation
         )
-    }
-
-    /// Returns a content-addressed package entry in Volta's package store.
-    pub fn package_store_entry(&self, content_hash: &str) -> PathBuf {
-        path_buf!(self.package_store_dir.clone(), content_hash)
     }
 }
 

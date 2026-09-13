@@ -3,7 +3,6 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 
 use crate::support::sandbox::{sandbox, PackageBinInfo, Sandbox};
@@ -25,27 +24,60 @@ const NODE: &str = r#"#!/bin/sh
 echo "node args: $@"
 "#;
 
-// This fixture stands in for npm's dependency solver and materializer. It
-// intentionally produces a conventional npm node_modules topology so the test
-// remains deterministic and does not need the public registry.
-const NPM: &str = r#"#!/bin/sh
+const PNPM_VERSION_INFO: &str = r#"{
+  "name": "pnpm",
+  "dist-tags": { "latest": "7.7.1" },
+  "versions": {
+    "7.7.1": { "version": "7.7.1", "dist": { "shasum": "", "tarball": "" } }
+  }
+}"#;
+
+// This fixture stands in for pnpm's solver and materializer. It intentionally
+// creates pnpm's linked node_modules topology and a pnpm lockfile.
+const PNPM: &str = r#"#!/bin/sh
 spec=
+allow_build_esbuild=
+store_dir=
+seen_add=
 for arg in "$@"; do
+  case "$arg" in
+    add) seen_add=1 ;;
+    --allow-build=esbuild)
+      [ -n "$seen_add" ] || exit 2
+      allow_build_esbuild=1
+      ;;
+    --node-linker=*|--virtual-store-dir=*) exit 2 ;;
+    --store-dir=*) store_dir=${arg#--store-dir=} ;;
+  esac
   spec=$arg
 done
+: "${store_dir:?missing --store-dir}"
+[ "$pnpm_config_node_linker" = isolated ] || exit 2
+[ "$pnpm_config_virtual_store_dir" = node_modules/.pnpm ] || exit 2
+[ "$pnpm_config_enable_global_virtual_store" = false ] || exit 2
 
 case "$spec" in
-  alpha|alpha@1)
+  alpha)
+    name=alpha
+    if [ -f "$store_dir/fail-alpha" ]; then exit 42; fi
+    marker="$store_dir/alpha-upgraded"
+    if [ -f "$marker" ]; then version=2.0.0; else version=1.0.0; fi
+    mkdir -p "$store_dir"
+    touch "$marker"
+    if [ -n "$allow_build_esbuild" ]; then
+      touch "$store_dir/allow-build-esbuild"
+    fi
+    command=alpha
+    ;;
+  alpha@1)
     name=alpha
     version=1.0.0
     command=alpha
-    shared=1.0.0
     ;;
   alpha@2)
     name=alpha
     version=2.0.0
     command=alpha
-    shared=1.0.0
     ;;
   alpha@broken)
     exit 42
@@ -54,43 +86,36 @@ case "$spec" in
     name=beta
     version=1.0.0
     command=beta
-    shared=1.0.0
     ;;
   gamma)
     name=gamma
     version=1.0.0
     command=gamma
-    shared=2.0.0
     ;;
   multi)
     name=multi
     version=1.0.0
     command=first
-    shared=
     ;;
   @scope/scoped)
     name=@scope/scoped
     version=1.2.3
     command=scoped
-    shared=
     ;;
   no-bin)
     name=no-bin
     version=1.0.0
     command=
-    shared=
     ;;
   conflict-a)
     name=conflict-a
     version=1.0.0
     command=dupe
-    shared=
     ;;
   conflict-b)
     name=conflict-b
     version=1.0.0
     command=dupe
-    shared=
     ;;
   *)
     echo "unsupported fixture package: $spec" >&2
@@ -98,48 +123,56 @@ case "$spec" in
     ;;
 esac
 
-mkdir -p "node_modules/$name" node_modules/.bin
-if [ -n "$shared" ]; then
-  cat > "node_modules/$name/package.json" <<EOF
-{"name":"$name","version":"$version","bin":{"$command":"cli.sh"},"dependencies":{"shared":"$shared"}}
-EOF
-  mkdir -p node_modules/shared
-  cat > node_modules/shared/package.json <<EOF
-{"name":"shared","version":"$shared"}
-EOF
-  echo "shared $shared" > node_modules/shared/index.js
-else
-  if [ -n "$command" ]; then
-    cat > "node_modules/$name/package.json" <<EOF
+physical="node_modules/.pnpm/root-$version/node_modules/$name"
+mkdir -p "$physical" node_modules/.bin
+case "$name" in
+  @*/*)
+    scope=${name%%/*}
+    mkdir -p "node_modules/$scope"
+    ln -s "../.pnpm/root-$version/node_modules/$name" "node_modules/$name"
+    ;;
+  *)
+    ln -s ".pnpm/root-$version/node_modules/$name" "node_modules/$name"
+    ;;
+esac
+if [ -n "$command" ]; then
+  cat > "$physical/package.json" <<EOF
 {"name":"$name","version":"$version","bin":{"$command":"cli.sh"}}
 EOF
-  else
-    cat > "node_modules/$name/package.json" <<EOF
+else
+  cat > "$physical/package.json" <<EOF
 {"name":"$name","version":"$version"}
 EOF
-  fi
 fi
 
 if [ "$name" = multi ]; then
-  cat > "node_modules/$name/package.json" <<EOF
+  cat > "$physical/package.json" <<EOF
 {"name":"multi","version":"1.0.0","bin":{"first":"cli.sh","second":"cli.sh"}}
 EOF
 fi
 
 if [ -n "$command" ]; then
-  cat > "node_modules/$name/cli.sh" <<EOF
+  cat > "$physical/cli.sh" <<EOF
 #!/bin/sh
 echo "$name@$version args: \$*"
+if [ "\$1" = "--node-path" ]; then
+  command -v node
+fi
 EOF
-  chmod +x "node_modules/$name/cli.sh"
+  chmod +x "$physical/cli.sh"
   ln -s "../$name/cli.sh" "node_modules/.bin/$command"
 fi
 if [ "$name" = multi ]; then
   ln -s ../multi/cli.sh node_modules/.bin/second
 fi
 
-cat > package-lock.json <<EOF
-{"name":"volta-tool-environment","lockfileVersion":3,"packages":{"node_modules/$name":{"integrity":"sha512-root-$name-$version"},"node_modules/shared":{"integrity":"sha512-shared-$shared"}}}
+cat > pnpm-lock.yaml <<EOF
+lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      $name:
+        version: $version
 EOF
 exit 0
 "#;
@@ -149,16 +182,11 @@ fn test_sandbox() -> Sandbox {
         .layout_file("v4")
         .platform(PLATFORM)
         .setup_node_binary("11.10.1", "6.7.0", NODE)
-        .setup_npm_binary("6.7.0", NPM)
+        .pnpm_available_versions(PNPM_VERSION_INFO)
+        .setup_pnpm_binary("7.7.1", PNPM)
         .add_dir_to_path(PathBuf::from("/bin"))
         .env("VOLTA_LOGLEVEL", "info")
         .build()
-}
-
-fn store_entry_count() -> usize {
-    fs::read_dir(test_support::paths::home().join(".volta/store/packages"))
-        .expect("package store exists")
-        .count()
 }
 
 fn installed_environment(package: &str) -> PathBuf {
@@ -186,18 +214,8 @@ fn installed_manifest(package: &str) -> Value {
     .expect("tool manifest must be valid JSON")
 }
 
-fn package_content_hash<'a>(manifest: &'a Value, package: &str) -> &'a str {
-    manifest["packages"]
-        .as_array()
-        .expect("packages array")
-        .iter()
-        .find(|entry| entry["name"] == package)
-        .and_then(|entry| entry["content_hash"].as_str())
-        .expect("package content hash")
-}
-
 #[test]
-fn installs_independent_tools_reuses_content_and_uninstalls_independently() {
+fn installs_linked_tools_and_uninstalls_independently() {
     let s = test_sandbox();
 
     assert_that!(s.volta("tool install alpha"), execs().with_status(0));
@@ -207,43 +225,48 @@ fn installs_independent_tools_reuses_content_and_uninstalls_independently() {
             .with_status(0)
             .with_stdout_contains("alpha@1.0.0 args: one two")
     );
-    assert_that!(s.volta("tool install beta"), execs().with_status(0));
-
-    // alpha, beta, and their one identical shared dependency produce three
-    // content entries rather than four.
-    assert_eq!(store_entry_count(), 3);
-    let alpha = installed_manifest("alpha");
-    let beta = installed_manifest("beta");
-    assert_eq!(
-        package_content_hash(&alpha, "shared"),
-        package_content_hash(&beta, "shared")
+    assert_that!(
+        s.exec_shim("alpha", "--node-path"),
+        execs().with_status(0).with_stdout_contains(
+            "[..]tools/environments/installed/alpha/installations/[..]/runtime/node/bin/node"
+        )
     );
-    let shared_hash = package_content_hash(&alpha, "shared");
-    let environment_file = installed_environment("alpha").join("node_modules/shared/index.js");
-    let store_file = test_support::paths::home()
-        .join(".volta/store/packages")
-        .join(shared_hash)
-        .join("index.js");
-    let environment_metadata = fs::metadata(environment_file).expect("environment shared file");
-    let store_metadata = fs::metadata(store_file).expect("stored shared file");
-    assert_eq!(environment_metadata.dev(), store_metadata.dev());
-    assert_eq!(environment_metadata.ino(), store_metadata.ino());
-    let alpha_package = alpha["packages"]
-        .as_array()
-        .expect("packages array")
-        .iter()
-        .find(|entry| entry["name"] == "alpha")
-        .expect("alpha package node");
-    assert_eq!(
-        alpha_package["dependencies"][0]["target"],
-        "node_modules/shared"
+    assert_that!(s.volta("tool install beta"), execs().with_status(0));
+    assert_that!(s.volta("uninstall pnpm@7.7.1"), execs().with_status(0));
+    assert_that!(
+        s.exec_shim("alpha", "without-installer"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("alpha@1.0.0 args: without-installer")
+    );
+
+    let alpha = installed_manifest("alpha");
+    assert_eq!(alpha["schema_version"], 2);
+    assert_eq!(alpha["package"]["requested"], "alpha");
+    assert_eq!(alpha["runtime"]["resolved"], "11.10.1");
+    assert_eq!(alpha["installer"]["kind"], "pnpm");
+    assert_eq!(alpha["installer"]["version"], "7.7.1");
+    assert!(installed_environment("alpha")
+        .join("pnpm-lock.yaml")
+        .is_file());
+    assert!(
+        fs::symlink_metadata(installed_environment("alpha").join("runtime/node"))
+            .expect("runtime reference")
+            .file_type()
+            .is_symlink()
+    );
+    assert!(
+        fs::symlink_metadata(installed_environment("alpha").join("node_modules/alpha"))
+            .expect("pnpm package link")
+            .file_type()
+            .is_symlink()
     );
     assert_that!(
         s.volta("tool list"),
         execs()
             .with_status(0)
-            .with_stdout_contains("alpha@1.0.0 (node@11.10.1) [alpha]")
-            .with_stdout_contains("beta@1.0.0 (node@11.10.1) [beta]")
+            .with_stdout_contains("alpha@1.0.0 (node@11.10.1, installed by pnpm@7.7.1) [alpha]")
+            .with_stdout_contains("beta@1.0.0 (node@11.10.1, installed by pnpm@7.7.1) [beta]")
     );
     assert_that!(
         s.volta("tool which alpha"),
@@ -268,15 +291,6 @@ fn keeps_conflicting_versions_isolated_and_supports_scopes_and_multiple_bins() {
 
     assert_that!(s.volta("tool install alpha"), execs().with_status(0));
     assert_that!(s.volta("tool install gamma"), execs().with_status(0));
-    // alpha + gamma + two different shared dependency contents.
-    assert_eq!(store_entry_count(), 4);
-    let alpha = installed_manifest("alpha");
-    let gamma = installed_manifest("gamma");
-    assert_ne!(
-        package_content_hash(&alpha, "shared"),
-        package_content_hash(&gamma, "shared")
-    );
-
     assert_that!(
         s.volta("tool install @scope/scoped"),
         execs().with_status(0)
@@ -407,7 +421,7 @@ fn reports_environment_manifest_tampering() {
     let mut manifest: Value =
         serde_json::from_reader(fs::File::open(&manifest_path).expect("tool manifest must exist"))
             .expect("tool manifest must be valid JSON");
-    manifest["requested"] = Value::String("alpha@tampered".to_owned());
+    manifest["package"]["requested"] = Value::String("alpha@tampered".to_owned());
     fs::write(
         &manifest_path,
         serde_json::to_vec_pretty(&manifest).expect("serialize changed manifest"),
@@ -433,7 +447,9 @@ fn project_local_command_keeps_precedence_over_an_isolated_global_tool() {
             contents: "#!/bin/sh\necho project-local\n".to_owned(),
         }])
         .setup_node_binary("11.10.1", "6.7.0", NODE)
-        .setup_npm_binary("6.7.0", NPM)
+        .setup_npm_binary("6.7.0", NODE)
+        .pnpm_available_versions(PNPM_VERSION_INFO)
+        .setup_pnpm_binary("7.7.1", PNPM)
         .add_dir_to_path(PathBuf::from("/bin"))
         .build();
 
@@ -448,14 +464,15 @@ fn project_local_command_keeps_precedence_over_an_isolated_global_tool() {
 }
 
 #[test]
-fn persists_the_current_project_node_runtime_at_install_time() {
+fn defaults_to_global_node_and_allows_an_explicit_tool_runtime() {
     let s = sandbox()
         .layout_file("v4")
         .platform(PLATFORM)
         .package_json(r#"{"name":"project","volta":{"node":"10.99.1040","npm":"6.7.0"}}"#)
         .setup_node_binary("11.10.1", "6.7.0", NODE)
         .setup_node_binary("10.99.1040", "6.7.0", NODE)
-        .setup_npm_binary("6.7.0", NPM)
+        .pnpm_available_versions(PNPM_VERSION_INFO)
+        .setup_pnpm_binary("7.7.1", PNPM)
         .add_dir_to_path(PathBuf::from("/bin"))
         .build();
 
@@ -464,6 +481,101 @@ fn persists_the_current_project_node_runtime_at_install_time() {
         s.volta("tool list"),
         execs()
             .with_status(0)
-            .with_stdout_contains("alpha@1.0.0 (node@10.99.1040) [alpha]")
+            .with_stdout_contains("alpha@1.0.0 (node@11.10.1, installed by pnpm@7.7.1) [alpha]")
+    );
+
+    assert_that!(
+        s.volta("tool install beta --node 10.99.1040"),
+        execs().with_status(0)
+    );
+    assert_that!(
+        s.volta("tool list"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("beta@1.0.0 (node@10.99.1040, installed by pnpm@7.7.1) [beta]")
+    );
+}
+
+#[test]
+fn upgrades_from_the_receipt_and_preserves_the_previous_install_on_failure() {
+    let s = test_sandbox();
+
+    assert_that!(
+        s.volta("tool install alpha --allow-build esbuild"),
+        execs().with_status(0)
+    );
+    assert_eq!(
+        installed_manifest("alpha")["settings"]["allow_builds"][0],
+        "esbuild"
+    );
+    assert!(test_support::paths::home()
+        .join(".volta/store/pnpm/allow-build-esbuild")
+        .is_file());
+    assert_that!(s.volta("tool upgrade alpha"), execs().with_status(0));
+    assert_that!(
+        s.exec_shim("alpha", "upgraded"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("alpha@2.0.0 args: upgraded")
+    );
+
+    let fail_marker = test_support::paths::home().join(".volta/store/pnpm/fail-alpha");
+    fs::write(fail_marker, "fail").expect("failure marker");
+    assert_that!(s.volta("tool upgrade alpha"), execs().with_status(1));
+    assert_that!(
+        s.exec_shim("alpha", "still-current"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("alpha@2.0.0 args: still-current")
+    );
+}
+
+#[test]
+fn upgrade_all_and_forced_node_removal_have_explicit_results() {
+    let s = sandbox()
+        .layout_file("v4")
+        .platform(PLATFORM)
+        .setup_node_binary("11.10.1", "6.7.0", NODE)
+        .setup_node_binary("10.99.1040", "6.7.0", NODE)
+        .pnpm_available_versions(PNPM_VERSION_INFO)
+        .setup_pnpm_binary("7.7.1", PNPM)
+        .add_dir_to_path(PathBuf::from("/bin"))
+        .build();
+
+    assert_that!(s.volta("tool install alpha"), execs().with_status(0));
+    assert_that!(s.volta("tool install beta"), execs().with_status(0));
+    assert_that!(
+        s.volta("tool upgrade --all --node 10.99.1040"),
+        execs().with_status(0)
+    );
+    assert_that!(
+        s.volta("tool list"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("alpha@2.0.0 (node@10.99.1040, installed by pnpm@7.7.1) [alpha]")
+            .with_stdout_contains("beta@1.0.0 (node@10.99.1040, installed by pnpm@7.7.1) [beta]")
+    );
+
+    assert_that!(
+        s.volta("uninstall node@10.99.1040"),
+        execs()
+            .with_status(8)
+            .with_stderr_contains("[..]used by isolated tools: alpha, beta[..]")
+    );
+    assert_that!(
+        s.volta("uninstall node@10.99.1040 --force"),
+        execs().with_status(0)
+    );
+    assert_that!(
+        s.volta("tool list"),
+        execs().with_status(0).with_stdout_contains(
+            "alpha@2.0.0 (node@10.99.1040, installed by pnpm@7.7.1) [alpha] BROKEN: missing Node runtime"
+        )
+    );
+    assert_that!(
+        s.volta("tool run alpha"),
+        execs().with_status(8).with_stderr_contains(
+            "[..]requires node@10.99.1040, but that runtime is not installed[..]"
+        )
     );
 }

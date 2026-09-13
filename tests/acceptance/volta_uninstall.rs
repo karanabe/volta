@@ -4,6 +4,7 @@ use crate::support::sandbox::{sandbox, Sandbox};
 use hamcrest2::assert_that;
 use hamcrest2::prelude::*;
 use test_support::matchers::execs;
+use volta_core::tool::Node;
 
 const PKG_CONFIG_BASIC: &str = r#"{
   "name": "cowsay",
@@ -206,12 +207,91 @@ fn uninstall_package_orphaned_bins() {
 }
 
 #[test]
-fn uninstall_runtime() {
-    let s = sandbox().build();
+fn uninstall_runtime_and_package_manager_images() {
+    let platform = r#"{
+      "node": { "runtime": "11.10.1", "npm": "6.7.0" },
+      "pnpm": "7.7.1",
+      "yarn": "1.22.19"
+    }"#;
+    let binary = "#!/bin/sh\nexit 0\n";
+    let node_version = "11.10.1".parse().expect("valid Node version");
+    let node_archive = Node::archive_filename(&node_version);
+    let s = sandbox()
+        .layout_file("v4")
+        .platform(platform)
+        .setup_node_binary("11.10.1", "5.6.7", binary)
+        .setup_npm_binary("6.7.0", binary)
+        .setup_pnpm_binary("7.7.1", binary)
+        .setup_yarn_binary("1.22.19", binary)
+        .file(
+            &format!(".volta/tools/inventory/node/{node_archive}"),
+            "cached",
+        )
+        .file(".volta/tools/inventory/npm/npm-6.7.0.tgz", "cached")
+        .file(".volta/tools/inventory/pnpm/pnpm-7.7.1.tgz", "cached")
+        .file(".volta/tools/inventory/yarn/yarn-v1.22.19.tar.gz", "cached")
+        .env(VOLTA_LOGLEVEL, "info")
+        .build();
+
+    assert_that!(s.volta("uninstall pnpm"), execs().with_status(0));
+    assert!(!test_support::paths::home()
+        .join(".volta/tools/image/pnpm/7.7.1")
+        .exists());
+    assert!(!test_support::paths::home()
+        .join(".volta/tools/inventory/pnpm/pnpm-7.7.1.tgz")
+        .exists());
+    assert_that!(s.volta("uninstall yarn@1.22.19"), execs().with_status(0));
+    assert!(!test_support::paths::home()
+        .join(".volta/tools/image/yarn/1.22.19")
+        .exists());
+    assert!(!test_support::paths::home()
+        .join(".volta/tools/inventory/yarn/yarn-v1.22.19.tar.gz")
+        .exists());
+    assert_that!(s.volta("uninstall npm"), execs().with_status(0));
+    assert!(!test_support::paths::home()
+        .join(".volta/tools/image/npm/6.7.0")
+        .exists());
+    assert!(!test_support::paths::home()
+        .join(".volta/tools/inventory/npm/npm-6.7.0.tgz")
+        .exists());
     assert_that!(
-        s.volta("uninstall node"),
+        s.volta("uninstall npm"),
         execs()
-            .with_status(1)
-            .with_stderr_contains("[..]error: Uninstalling node is not supported yet.")
-    )
+            .with_status(3)
+            .with_stderr_contains("[..]active npm is bundled with Node[..]")
+    );
+    assert_that!(s.volta("uninstall node"), execs().with_status(0));
+    assert!(!test_support::paths::home()
+        .join(".volta/tools/image/node/11.10.1")
+        .exists());
+    assert!(!test_support::paths::home()
+        .join(".volta/tools/inventory/node")
+        .join(node_archive)
+        .exists());
+    assert_eq!(
+        std::fs::read_to_string(
+            test_support::paths::home().join(".volta/tools/user/platform.json")
+        )
+        .expect("default platform"),
+        "{}"
+    );
+}
+
+#[test]
+fn uninstall_runtime_requires_an_exact_version_or_active_default() {
+    let binary = "#!/bin/sh\nexit 0\n";
+    let s = sandbox().setup_npm_binary("9.9.9", binary).build();
+    assert_that!(
+        s.volta("uninstall node@lts"),
+        execs()
+            .with_status(3)
+            .with_stderr_contains("[..]Specify an exact version[..]")
+    );
+    assert_that!(
+        s.volta("uninstall pnpm"),
+        execs()
+            .with_status(8)
+            .with_stderr_contains("[..]pnpm is not available[..]")
+    );
+    assert_that!(s.volta("uninstall npm@9.9.9"), execs().with_status(0));
 }

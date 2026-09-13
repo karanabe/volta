@@ -79,8 +79,8 @@ pub(super) fn command(exe: &OsStr, args: &[OsString], session: &mut Session) -> 
         return Ok(ToolCommand::new(
             tool.path,
             args,
-            Some(tool.platform),
-            ToolKind::ToolEnvironment(tool.command),
+            None,
+            ToolKind::ToolEnvironment(tool.runtime_bin),
         )
         .into());
     }
@@ -156,6 +156,21 @@ pub(super) fn default_execution_context(
             Ok((path, ErrorKind::BinaryNotFound { name: tool }))
         }
     }
+}
+
+/// Determine the execution context for a receipt-backed isolated tool.
+///
+/// The resolver has already verified the environment's physical runtime link.
+/// Use that link directly and avoid checkout so a runtime removed with
+/// `--force` is not downloaded again implicitly.
+pub(super) fn isolated_execution_context(runtime_bin: PathBuf) -> Fallible<(OsString, ErrorKind)> {
+    let old_path = envoy::path().unwrap_or_else(|| envoy::Var::from(""));
+    let path = old_path
+        .split()
+        .prefix_entry(runtime_bin)
+        .join()
+        .with_context(|| ErrorKind::BuildPathError)?;
+    Ok((path, ErrorKind::BinaryExecError))
 }
 
 /// Information about the location and execution context of default binaries
