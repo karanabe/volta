@@ -117,7 +117,7 @@ fn get_installed_packages(old_home: &v2::VoltaHome) -> Vec<LegacyPackageConfig> 
                         if let Some(name) = entry.path().file_stem() {
                             let name = name.to_string_lossy();
                             warn!(
-                                "Could not migrate {}. Please run `volta install {0}` to migrate the package manually.",
+                                "Could not migrate {}. The deprecated `volta install {0}` workflow has been removed; reinstall it with `pnpm add --global {0}` or another package manager.",
                                 name
                             );
                         }
@@ -153,15 +153,13 @@ fn is_migrated_config(config_path: &Path) -> bool {
 ///
 /// If any of those are violated, this migration may be invalid and need to be reworked / scrapped
 fn migrate_single_package(config: LegacyPackageConfig, session: &mut Session) -> Fallible<()> {
-    let tool = Package::new(config.name, VersionSpec::Exact(config.version))?;
+    let tool = Package::new(config.name, VersionSpec::Exact(config.version));
 
     let platform: PlatformSpec = config.platform.into();
     let image = platform.as_binary().checkout(session)?;
 
-    // Run the global install command
-    tool.run_install(&image)?;
-    // Overwrite the config files and image directory
-    tool.complete_install(&image)?;
+    // Reinstall the package and overwrite its config files and image directory.
+    tool.migrate_legacy_install(&image)?;
 
     Ok(())
 }

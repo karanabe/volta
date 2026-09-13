@@ -25,7 +25,7 @@
 
 **Reliable:** Ensure everyone in your project has the same tools—without interfering with their workflow.
 
-**Universal:** No matter the package manager, Node runtime, or OS, one command is all you need: `volta install`.
+**Focused:** Volta selects Node and package-manager versions while each package manager owns its global packages.
 
 ## Features
 
@@ -65,7 +65,27 @@ setup and platform details that still apply to this fork.
 ## Using Volta
 
 Read the upstream [Understanding Volta Guide](https://docs.volta.sh/guide/understanding)
-for detailed instructions on how to use Volta.
+for the core concepts and project pinning workflow. pnpm support is enabled by
+default in this fork; the former `VOLTA_FEATURE_PNPM` environment variable is
+no longer needed.
+
+Use Volta to install and pin runtimes and package managers:
+
+```bash
+volta install node@lts pnpm@latest
+volta pin node@lts pnpm@latest
+```
+
+Global package commands are passed through to the selected package manager.
+Install command-line tools with that package manager, for example:
+
+```bash
+pnpm add --global @openai/codex
+```
+
+The deprecated `volta install <package>` workflow has been removed. Existing
+Volta-managed packages can still be executed and removed with `volta uninstall`
+while they are migrated manually to the preferred package manager.
 
 ## Contributing to Volta
 

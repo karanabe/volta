@@ -6,7 +6,10 @@ use crate::command::Command;
 
 #[derive(clap::Args)]
 pub(crate) struct Install {
-    /// Tools to install, like `node`, `yarn@latest` or `your-package@^14.4.3`.
+    /// Runtimes or package managers to install, like `node`, `pnpm@latest`, or `yarn@latest`.
+    ///
+    /// The deprecated third-party package install workflow has been removed. Use your package
+    /// manager's global install command instead.
     #[arg(value_name = "tool[@version]", required = true)]
     tools: Vec<String>,
 }

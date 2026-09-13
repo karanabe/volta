@@ -9,23 +9,10 @@ use crate::session::{ActivityKind, Session};
 
 pub(super) fn command(args: &[OsString], session: &mut Session) -> Fallible<Executor> {
     session.add_event_start(ActivityKind::Pnpm);
-    // Don't re-evaluate the context or global install interception if this is a recursive call
+    // Don't re-evaluate the context if this is a recursive call
     let platform = match env::var_os(RECURSION_ENV_VAR) {
         Some(_) => None,
-        None => {
-            // FIXME: Figure out how to intercept pnpm global commands properly.
-            // This guard prevents all global commands from running, it should
-            // be removed when we fully implement global command interception.
-            let is_global = args.iter().any(|f| f == "--global" || f == "-g");
-            if is_global {
-                return Err(ErrorKind::Unimplemented {
-                    feature: "pnpm global commands".into(),
-                }
-                .into());
-            }
-
-            Platform::current(session)?
-        }
+        None => Platform::current(session)?,
     };
 
     Ok(ToolCommand::new("pnpm", args, platform, ToolKind::Pnpm).into())

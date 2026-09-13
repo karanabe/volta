@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use super::manager::PackageManager;
 use crate::command::create_command;
 use crate::error::{Context, ErrorKind, Fallible};
 use crate::platform::Image;
@@ -27,7 +26,7 @@ pub(super) fn run_global_install(
     ]);
     command.arg(&package);
     command.env("PATH", platform_image.path()?);
-    PackageManager::Npm.setup_global_command(&mut command, staging_dir);
+    command.env("npm_config_prefix", staging_dir);
 
     debug!("Installing {} with command: {:?}", package, command);
     let spinner = progress_spinner(format!("Installing {}", package));

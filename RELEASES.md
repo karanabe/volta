@@ -1,3 +1,9 @@
+# Unreleased
+
+- Enable first-class pnpm support without `VOLTA_FEATURE_PNPM`
+- Pass npm, pnpm, and Yarn global package commands through to the selected package manager
+- Remove the deprecated `volta install <package>` workflow
+
 # Version 2.0.3
 
 - Continue development as a personal-use fork

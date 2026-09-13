@@ -7,12 +7,12 @@ use volta_core::session::{ActivityKind, Session};
 
 pub(crate) const USAGE: &str = "The subcommand `use` is deprecated.
 
-    To install a tool in your toolchain, use `volta install`.
+    To install a runtime or package manager, use `volta install`.
     To pin your project's runtime or package manager, use `volta pin`.
 ";
 
 const ADVICE: &str = "
-    To install a tool in your toolchain, use `volta install`.
+    To install a runtime or package manager, use `volta install`.
     To pin your project's runtime or package manager, use `volta pin`.
 ";
 

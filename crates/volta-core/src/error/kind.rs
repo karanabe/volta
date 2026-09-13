@@ -268,6 +268,11 @@ pub enum ErrorKind {
         package: String,
     },
 
+    /// Thrown when using the removed `volta install <package>` workflow
+    PackageInstallRemoved {
+        package: String,
+    },
+
     /// Thrown when parsing the package manifest fails
     PackageManifestParseError {
         package: String,
@@ -1006,6 +1011,13 @@ This project is configured to use version {} of npm.",
 Please confirm the package is valid and run with `--verbose` for more diagnostics.",
                 package
             ),
+            ErrorKind::PackageInstallRemoved { package } => write!(
+                f,
+                "The deprecated `volta install {0}` workflow has been removed.
+
+Use `pnpm add --global {0}` or the equivalent command for your package manager.",
+                package
+            ),
             ErrorKind::PackageManifestParseError { package } => write!(
                 f,
                 "Could not parse package.json manifest for {}
@@ -1517,6 +1529,7 @@ impl ErrorKind {
             ErrorKind::NpmVersionNotFound { .. } => ExitCode::NoVersionMatch,
             ErrorKind::NpxNotAvailable { .. } => ExitCode::ExecutableNotFound,
             ErrorKind::PackageInstallFailed { .. } => ExitCode::UnknownError,
+            ErrorKind::PackageInstallRemoved { .. } => ExitCode::InvalidArguments,
             ErrorKind::PackageManifestParseError { .. } => ExitCode::ConfigurationError,
             ErrorKind::PackageManifestReadError { .. } => ExitCode::FileSystemError,
             ErrorKind::PackageNotFound { .. } => ExitCode::InvalidArguments,

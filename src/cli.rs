@@ -10,7 +10,7 @@ use volta_core::style::{text_width, MAX_WIDTH};
     about = "The JavaScript Launcher ⚡",
     long_about = "The JavaScript Launcher ⚡
 
-    To install a tool in your toolchain, use `volta install`.
+    To install a runtime or package manager, use `volta install`.
     To pin your project's runtime or package manager, use `volta pin`.",
     color = ColorChoice::Auto,
     disable_version_flag = true,
@@ -66,7 +66,7 @@ pub(crate) enum Subcommand {
     /// Fetches a tool to the local machine
     Fetch(command::Fetch),
 
-    /// Installs a tool in your toolchain
+    /// Installs a runtime or package manager in your toolchain
     Install(command::Install),
 
     /// Uninstalls a tool from your toolchain

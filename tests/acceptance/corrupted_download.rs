@@ -102,7 +102,6 @@ fn install_corrupted_pnpm_leaves_inventory_unchanged() {
         .pnpm_available_versions(PNPM_VERSION_INFO)
         .distro_mocks::<NodeFixture>(&NODE_VERSION_FIXTURES)
         .distro_mocks::<PnpmFixture>(&PNPM_VERSION_FIXTURES)
-        .env("VOLTA_FEATURE_PNPM", "1")
         .build();
 
     assert_that!(
@@ -121,7 +120,6 @@ fn install_valid_pnpm_saves_to_inventory() {
         .pnpm_available_versions(PNPM_VERSION_INFO)
         .distro_mocks::<NodeFixture>(&NODE_VERSION_FIXTURES)
         .distro_mocks::<PnpmFixture>(&PNPM_VERSION_FIXTURES)
-        .env("VOLTA_FEATURE_PNPM", "1")
         .build();
 
     assert_that!(

@@ -356,7 +356,6 @@ fn pnpm_latest_with_hook_reads_index() {
     let mut s = builder
         .default_hooks(&pnpm_hooks_json(&server_url))
         .env("VOLTA_LOGLEVEL", "debug")
-        .env("VOLTA_FEATURE_PNPM", "1")
         .build();
     let _mock = s
         .mock("GET", "/pnpm/index")
@@ -394,7 +393,6 @@ fn pnpm_no_version_with_hook_reads_index() {
     let mut s = builder
         .default_hooks(&pnpm_hooks_json(&server_url))
         .env("VOLTA_LOGLEVEL", "debug")
-        .env("VOLTA_FEATURE_PNPM", "1")
         .build();
     let _mock = s
         .mock("GET", "/pnpm/index")

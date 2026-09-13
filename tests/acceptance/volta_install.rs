@@ -219,6 +219,21 @@ const NPM_VERSION_FIXTURES: [DistroMetadata; 3] = [
 ];
 
 #[test]
+fn install_third_party_package_reports_removed_workflow() {
+    let s = sandbox().build();
+
+    assert_that!(
+        s.volta("install typescript@latest"),
+        execs()
+            .with_status(ExitCode::InvalidArguments as i32)
+            .with_stderr_contains(
+                "[..]deprecated `volta install typescript@latest` workflow has been removed[..]",
+            )
+            .with_stderr_contains("[..]pnpm add --global typescript@latest[..]")
+    );
+}
+
+#[test]
 fn install_node_informs_newer_npm() {
     let s = sandbox()
         .platform(&platform_with_node_npm("8.9.10", "5.6.17"))
@@ -309,7 +324,6 @@ fn install_pnpm_without_node_errors() {
     let s = sandbox()
         .pnpm_available_versions(PNPM_VERSION_INFO)
         .distro_mocks::<PnpmFixture>(&PNPM_VERSION_FIXTURES)
-        .env("VOLTA_FEATURE_PNPM", "1")
         .build();
 
     assert_that!(
