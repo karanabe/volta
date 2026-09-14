@@ -86,7 +86,7 @@ impl PackageConfig {
 
 /// Configuration information about a single installed binary from a package
 ///
-/// Will be stored in <VOLTA_HOME>/tools/user/bins/<bin-name>.json
+/// Will be stored in `<VOLTA_HOME>/tools/user/bins/<bin-name>.json`.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct BinConfig {
     /// The binary name

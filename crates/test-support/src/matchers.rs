@@ -113,8 +113,12 @@ impl Execs {
     /// Be careful when using patterns such as `[..]`, because you may end up
     /// with multiple lines that might match, and this is not smart enough to
     /// do anything like longest-match.  For example, avoid something like:
+    ///
+    /// ```text
     ///     [RUNNING] `rustc [..]
     ///     [RUNNING] `rustc --crate-name foo [..]
+    /// ```
+    ///
     /// This will randomly fail if the other crate name is `bar`, and the
     /// order changes.
     pub fn with_stderr_unordered<S: ToString>(mut self, expected: S) -> Execs {

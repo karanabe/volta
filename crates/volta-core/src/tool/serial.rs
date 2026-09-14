@@ -24,7 +24,7 @@ impl Spec {
         }
     }
 
-    /// Try to parse a tool and version from a string like `<tool>[@<version>].
+    /// Try to parse a tool and version from a string like `<tool>[@<version>]`.
     pub fn try_from_str(tool_spec: &str) -> Fallible<Self> {
         let captures =
             TOOL_SPEC_PATTERN
