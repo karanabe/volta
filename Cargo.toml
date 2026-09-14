@@ -1,6 +1,6 @@
 [package]
 name = "volta"
-version = "3.0.0-alpha.2"
+version = "3.0.0-alpha.3"
 license = "BSD-2-Clause"
 repository = "https://github.com/karanabe/volta"
 edition = "2021"
