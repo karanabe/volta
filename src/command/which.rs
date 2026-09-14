@@ -5,7 +5,7 @@ use which::which_in;
 
 use volta_core::error::{Context, ErrorKind, ExitCode, Fallible};
 use volta_core::platform::{Platform, System};
-use volta_core::run::binary::DefaultBinary;
+use volta_core::run::binary;
 use volta_core::session::{ActivityKind, Session};
 
 use crate::command::Command;
@@ -24,18 +24,7 @@ impl Command for Which {
     fn run(self, session: &mut Session) -> Fallible<ExitCode> {
         session.add_event_start(ActivityKind::Which);
 
-        let default_tool = DefaultBinary::from_name(&self.binary, session)?;
-        let project_bin_path = session
-            .project()?
-            .and_then(|project| project.find_bin(&self.binary));
-
-        let tool_path = match (default_tool, project_bin_path) {
-            (Some(_), Some(bin_path)) => Some(bin_path),
-            (Some(tool), _) => Some(tool.bin_path),
-            _ => None,
-        };
-
-        if let Some(path) = tool_path {
+        if let Some(path) = binary::which(&self.binary, session)? {
             println!("{}", path.to_string_lossy());
 
             let exit_code = ExitCode::Success;

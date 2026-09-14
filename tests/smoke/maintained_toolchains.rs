@@ -41,6 +41,65 @@ fn current_node_install_pin_and_run() {
 }
 
 #[test]
+fn isolated_tools_survive_publication_upgrade_and_installer_removal() {
+    let p = temp_project().package_json(PACKAGE_JSON).build();
+
+    assert_that!(p.volta("install node@lts"), execs().with_status(0));
+    assert_that!(p.volta("tool install cowsay@1.6.0"), execs().with_status(0));
+    assert_that!(
+        p.volta("which cowsay"),
+        execs().with_status(0).with_stdout_contains(
+            "[..]tools/environments/installed/cowsay/installations/[..]/node_modules/.bin/cowsay"
+        )
+    );
+    assert_that!(
+        p.exec_shim("cowsay", "published-tool"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("[..]published-tool[..]")
+    );
+    assert_that!(
+        p.volta("tool run cowsay -- receipt-tool"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("[..]receipt-tool[..]")
+    );
+    assert_that!(p.volta("tool upgrade cowsay"), execs().with_status(0));
+    assert_that!(
+        p.exec_shim("cowsay", "upgraded-tool"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("[..]upgraded-tool[..]")
+    );
+
+    assert_that!(
+        p.volta("tool install esbuild@0.25.0 --allow-build esbuild"),
+        execs().with_status(0)
+    );
+    assert_that!(
+        p.exec_shim("esbuild", "--version"),
+        execs().with_status(0).with_stdout("0.25.0\n")
+    );
+
+    assert_that!(p.volta("install pnpm@latest"), execs().with_status(0));
+    assert_that!(p.volta("uninstall pnpm"), execs().with_status(0));
+    assert_that!(
+        p.exec_shim("cowsay", "without-installer"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("[..]without-installer[..]")
+    );
+    assert_that!(p.volta("tool upgrade cowsay"), execs().with_status(0));
+    assert_that!(p.volta("tool uninstall cowsay"), execs().with_status(0));
+    assert!(!p.shim_exists("cowsay"));
+    assert!(!p.shim_exists("cowthink"));
+    assert_that!(
+        p.exec_shim("esbuild", "--version"),
+        execs().with_status(0).with_stdout("0.25.0\n")
+    );
+}
+
+#[test]
 fn lts_node_and_current_package_managers() {
     let builder = temp_project().package_json(PACKAGE_JSON);
     let pnpm_home = builder.root().join("pnpm-home");

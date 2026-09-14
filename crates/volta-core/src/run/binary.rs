@@ -17,6 +17,83 @@ use log::debug;
 /// Will detect if we should delegate to the project-local version or use the default version
 pub(super) fn command(exe: &OsStr, args: &[OsString], session: &mut Session) -> Fallible<Executor> {
     let bin = exe.to_string_lossy().to_string();
+    match resolve_binary(exe, session)? {
+        BinaryLocation::ProjectLocal(path) => Ok(ToolCommand::new(
+            path,
+            args,
+            Platform::current(session)?,
+            ToolKind::ProjectLocalBinary(bin),
+        )
+        .into()),
+        BinaryLocation::ProjectYarn => {
+            let mut exe_and_args = vec![exe.to_os_string()];
+            exe_and_args.extend_from_slice(args);
+            Ok(ToolCommand::new(
+                "yarn",
+                exe_and_args,
+                Platform::current(session)?,
+                ToolKind::Yarn,
+            )
+            .into())
+        }
+        BinaryLocation::Isolated(tool) => Ok(ToolCommand::new(
+            tool.path,
+            args,
+            None,
+            ToolKind::ToolEnvironment(tool.runtime_bin),
+        )
+        .into()),
+        BinaryLocation::Legacy(tool) => {
+            let mut command = ToolCommand::new(
+                tool.bin_path,
+                args,
+                Some(tool.platform),
+                ToolKind::DefaultBinary(bin),
+            );
+            command.env("NODE_PATH", shared_module_path()?);
+            Ok(command.into())
+        }
+        BinaryLocation::System => {
+            Ok(ToolCommand::new(exe, args, None, ToolKind::DefaultBinary(bin)).into())
+        }
+    }
+}
+
+enum BinaryLocation {
+    ProjectLocal(PathBuf),
+    ProjectYarn,
+    Isolated(environment::ResolvedToolCommand),
+    Legacy(Box<DefaultBinary>),
+    System,
+}
+
+/// Resolve the same managed executable used by shim dispatch, without running it.
+/// Returns `None` for runtime commands and unmanaged binaries, which the caller
+/// locates through the selected platform's PATH. Yarn project delegation returns
+/// the Yarn launcher since there is no standalone project executable.
+pub fn which(exe: &OsStr, session: &mut Session) -> Fallible<Option<PathBuf>> {
+    if matches!(
+        exe.to_str(),
+        Some("node" | "npm" | "npx" | "pnpm" | "yarn" | "yarnpkg")
+    ) {
+        return Ok(None);
+    }
+    match resolve_binary(exe, session)? {
+        BinaryLocation::ProjectLocal(path) => Ok(Some(path)),
+        BinaryLocation::Isolated(tool) => Ok(Some(tool.path)),
+        BinaryLocation::Legacy(tool) => Ok(Some(tool.bin_path)),
+        BinaryLocation::System => Ok(None),
+        BinaryLocation::ProjectYarn => {
+            let platform = Platform::current(session)?;
+            let (path, _) = super::yarn::execution_context(platform, session)?;
+            let cwd = env::current_dir().with_context(|| ErrorKind::CurrentDirError)?;
+            Ok(::which::which_in("yarn", Some(path), cwd).ok())
+        }
+    }
+}
+
+fn resolve_binary(exe: &OsStr, session: &mut Session) -> Fallible<BinaryLocation> {
+    let bin = exe.to_string_lossy().to_string();
     let isolated_tool = environment::lookup_command(&bin)?;
     // First try to use the project toolchain
     if let Some(project) = session.project()? {
@@ -32,14 +109,7 @@ pub(super) fn command(exe: &OsStr, args: &[OsString], session: &mut Session) -> 
                 Some(path_to_bin) => {
                     debug!("Found {} in project at '{}'", bin, path_to_bin.display());
 
-                    let platform = Platform::current(session)?;
-                    return Ok(ToolCommand::new(
-                        path_to_bin,
-                        args,
-                        platform,
-                        ToolKind::ProjectLocalBinary(bin),
-                    )
-                    .into());
+                    return Ok(BinaryLocation::ProjectLocal(path_to_bin));
                 }
                 None => {
                     if project.needs_yarn_run() {
@@ -47,16 +117,7 @@ pub(super) fn command(exe: &OsStr, args: &[OsString], session: &mut Session) -> 
                             "Project needs to use yarn to run command, calling {} with 'yarn'",
                             bin
                         );
-                        let platform = Platform::current(session)?;
-                        let mut exe_and_args = vec![exe.to_os_string()];
-                        exe_and_args.extend_from_slice(args);
-                        return Ok(ToolCommand::new(
-                            "yarn",
-                            exe_and_args,
-                            platform,
-                            ToolKind::Yarn,
-                        )
-                        .into());
+                        return Ok(BinaryLocation::ProjectYarn);
                     } else {
                         return Err(ErrorKind::ProjectLocalBinaryNotFound {
                             command: exe.to_string_lossy().to_string(),
@@ -76,13 +137,7 @@ pub(super) fn command(exe: &OsStr, args: &[OsString], session: &mut Session) -> 
         .transpose()?
     {
         debug!("Found isolated tool {} in '{}'", bin, tool.path.display());
-        return Ok(ToolCommand::new(
-            tool.path,
-            args,
-            None,
-            ToolKind::ToolEnvironment(tool.runtime_bin),
-        )
-        .into());
+        return Ok(BinaryLocation::Isolated(tool));
     }
 
     // Try to use the legacy default package toolchain.
@@ -93,20 +148,12 @@ pub(super) fn command(exe: &OsStr, args: &[OsString], session: &mut Session) -> 
             default_tool.bin_path.display()
         );
 
-        let mut command = ToolCommand::new(
-            default_tool.bin_path,
-            args,
-            Some(default_tool.platform),
-            ToolKind::DefaultBinary(bin),
-        );
-        command.env("NODE_PATH", shared_module_path()?);
-
-        return Ok(command.into());
+        return Ok(BinaryLocation::Legacy(Box::new(default_tool)));
     }
 
     // At this point, the binary is not known to Volta, so we have no platform to use to execute it
     // This should be rare, as anything we have a shim for should have a config file to load
-    Ok(ToolCommand::new(exe, args, None, ToolKind::DefaultBinary(bin)).into())
+    Ok(BinaryLocation::System)
 }
 
 /// Determine the execution context (PATH and failure error message) for a project-local binary

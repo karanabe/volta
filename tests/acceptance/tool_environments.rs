@@ -274,6 +274,12 @@ fn installs_linked_tools_and_uninstalls_independently() {
             "[..]tools/environments/installed/alpha/installations/[..]/node_modules/.bin/alpha"
         )
     );
+    assert_that!(
+        s.volta("which alpha"),
+        execs().with_status(0).with_stdout_contains(
+            "[..]tools/environments/installed/alpha/installations/[..]/node_modules/.bin/alpha"
+        )
+    );
 
     assert_that!(s.volta("tool uninstall alpha"), execs().with_status(0));
     assert!(!Sandbox::shim_exists("alpha"));
@@ -454,12 +460,23 @@ fn project_local_command_keeps_precedence_over_an_isolated_global_tool() {
         .build();
 
     assert_that!(s.volta("tool install alpha"), execs().with_status(0));
+    // Damage the global environment: resolving a direct project dependency
+    // must still succeed without loading that environment's files.
+    fs::remove_file(installed_environment("alpha").join("pnpm-lock.yaml"))
+        .expect("remove global lockfile");
     assert_that!(
         s.exec_shim("alpha", ""),
         execs()
             .with_status(0)
             .with_stdout_contains("project-local")
             .with_stdout_does_not_contain("alpha@1.0.0")
+    );
+    assert_that!(
+        s.volta("which alpha"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("[..]node_modules/.bin/alpha")
+            .with_stdout_does_not_contain("tools/environments")
     );
 }
 
@@ -493,6 +510,35 @@ fn defaults_to_global_node_and_allows_an_explicit_tool_runtime() {
         execs()
             .with_status(0)
             .with_stdout_contains("beta@1.0.0 (node@10.99.1040, installed by pnpm@7.7.1) [beta]")
+    );
+}
+
+#[test]
+fn which_reports_the_yarn_launcher_when_project_commands_delegate_to_yarn() {
+    let s = sandbox()
+        .layout_file("v4")
+        .platform(PLATFORM)
+        .package_json(r#"{"name":"project","dependencies":{"alpha":"1.0.0"},"volta":{"node":"11.10.1","yarn":"1.22.0"}}"#)
+        .project_file(".pnp.js", "")
+        .setup_node_binary("11.10.1", "6.7.0", NODE)
+        .setup_yarn_binary("1.22.0", "#!/bin/sh\necho yarn-project-command\n")
+        .pnpm_available_versions(PNPM_VERSION_INFO)
+        .setup_pnpm_binary("7.7.1", PNPM)
+        .add_dir_to_path(PathBuf::from("/bin"))
+        .build();
+
+    assert_that!(s.volta("tool install alpha@1"), execs().with_status(0));
+    assert_that!(
+        s.exec_shim("alpha", ""),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("yarn-project-command")
+    );
+    assert_that!(
+        s.volta("which alpha"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("[..]tools/image/yarn/1.22.0/bin/yarn")
     );
 }
 
