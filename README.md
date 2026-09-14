@@ -1,141 +1,97 @@
 # Volta
 
-<p align="center">
-  The Hassle-Free JavaScript Tool Manager
-</p>
+Volta manages Node.js, package managers, and JavaScript CLI tools, with automatic
+per-project version switching.
 
-<p align="center">
-  <a href="https://github.com/karanabe/volta/actions/workflows/release.yml">
-    <img alt="Production Build Status" src="https://github.com/karanabe/volta/actions/workflows/release.yml/badge.svg" />
-  </a>
-</p>
+[![Build status](https://github.com/karanabe/volta/actions/workflows/release.yml/badge.svg)](https://github.com/karanabe/volta/actions/workflows/release.yml)
 
----
+> [!NOTE]
+> This is a personal-use fork of [volta-cli/volta](https://github.com/volta-cli/volta).
+> Support outside the maintainer's workflows is not guaranteed.
+> See [Compatibility](COMPATIBILITY.md) for platform details.
 
-> [!IMPORTANT]
-> **This fork continues development for personal use.** The upstream
-> [`volta-cli/volta`](https://github.com/volta-cli/volta) project is no longer
-> maintained. This fork is kept current for the maintainer's personal workflows;
-> compatibility and support for other environments are not guaranteed.
+## Quick start
 
----
+### 1. Install Volta
 
-
-**Fast:** Install and run any JS tool quickly and seamlessly! Volta is built in Rust and ships as a snappy native binary.
-
-**Reliable:** Ensure everyone in your project has the same tools—without interfering with their workflow.
-
-**Focused:** Volta manages runtimes, package managers, and isolated environments for JavaScript CLI tools.
-
-## Features
-
-- Speed 🚀
-- Seamless, per-project version switching
-- Cross-platform support, including Windows and all Unix shells
-- Support for multiple package managers
-- Stable tool installation—no reinstalling on every Node upgrade!
-- Extensibility hooks for site-specific customization
-
-## Installing and updating this fork
-
-On Linux or macOS, download and run the installer published with the latest
-[GitHub Release](https://github.com/karanabe/volta/releases/latest):
+**Linux / macOS:** Download and run this fork's installer:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fsSLO \
-  https://github.com/karanabe/volta/releases/latest/download/volta-install.sh
+  https://github.com/karanabe/volta/releases/latest/download/volta-install.sh &&
 bash volta-install.sh
 rm volta-install.sh
 ```
 
-Run the same commands again to update an existing installation. To install a
-specific release, pass its version without the leading `v` when running the
-downloaded script, for example `bash volta-install.sh --version 2.0.3`.
-
-On Windows, download the latest
+**Windows:** Download and run the
 [x86-64 MSI](https://github.com/karanabe/volta/releases/latest/download/volta-windows-x86_64.msi)
 or
 [ARM64 MSI](https://github.com/karanabe/volta/releases/latest/download/volta-windows-arm64.msi).
 
-The Unix installer verifies the selected archive against the `SHA256SUMS` file
-from the same release before extracting it. See the upstream
-[Getting Started Guide](https://docs.volta.sh/guide/getting-started) for shell
-setup and platform details that still apply to this fork.
+To update Volta later, run the installer again.
 
-## Using Volta
+### 2. Open a new terminal
 
-Read the upstream [Understanding Volta Guide](https://docs.volta.sh/guide/understanding)
-for the core concepts and project pinning workflow. pnpm support is enabled by
-default in this fork; the former `VOLTA_FEATURE_PNPM` environment variable is
-no longer needed.
+The installer configures your shell. Close and reopen your terminal, then check:
 
-Use Volta to install and pin runtimes and package managers:
-
-```bash
-volta install node@lts pnpm@latest
-volta pin node@lts pnpm@latest
+```sh
+volta --version
 ```
 
-Install JavaScript command-line tools with `volta tool install`. pnpm is the
-default and only environment backend: pnpm owns its linked `node_modules`,
-lockfile, and shared content-addressed store, while Volta records the exact
-Node and pnpm versions used to create the environment:
+### 3. Install Node.js
 
-```bash
-volta tool install eslint
-volta tool install prettier@3
-volta tool install @openai/codex
-volta tool install esbuild --node lts --allow-build esbuild
+```sh
+volta install node@lts
+node --version
+npm --version
 ```
 
-Installing Node does not set a default pnpm because pnpm is not bundled with
-Node. `volta tool install` resolves and fetches its own exact pnpm backend
-automatically, so `volta install pnpm` is not a prerequisite. Install pnpm
-separately only when you also want to invoke `pnpm` directly.
+You're ready to use Node.js and its bundled npm. No separate Node installation
+or manual version switching is needed.
 
-Manage and run those tools with:
+## Everyday use
 
-```bash
-volta tool list
-volta tool which eslint
-volta tool run eslint -- --fix .
-volta tool upgrade eslint
-volta tool upgrade --all
-volta tool uninstall eslint
+### Use pnpm (optional)
+
+```sh
+volta install pnpm@latest
+pnpm --version
 ```
 
-The global default Node runtime is persisted with each new tool environment;
-the current project's pin does not affect installation. Use `--node <version>`
-to override it. Tool execution never falls back to an arbitrary `node` from
-`PATH`, and a project-local executable continues to take precedence over an
-installed global tool. Upgrade reuses the recorded package request, build
-permissions, and exact pnpm installer, unless `--node` changes the runtime.
-An unversioned request or range can advance to a newer matching package;
-an exact request is reproducibly rebuilt at that exact version.
+pnpm support is enabled by default in Volta 3; no feature flag is needed.
 
-`volta uninstall node|npm|pnpm|yarn` removes the active default; an exact
-version such as `volta uninstall node@22.20.0` removes that inventory entry.
-Ranges and tags are rejected for removal. Node removal is blocked while tool
-receipts reference it. `--force` overrides the check and leaves those tools
-visibly broken until they are upgraded or reinstalled. npm bundled with Node
-cannot be removed separately. Removing pnpm does not break installed tools;
-their recorded pnpm version is fetched again if a later upgrade needs it.
+### Pin a project's Node version (optional)
 
-The deprecated `volta install <package>` workflow has been replaced by
-`volta tool install <package>`. Volta 3 uses tool receipt schema v2 and does not
-load the npm-backed isolated environments created by pre-release schema v1.
+Run this inside a project directory containing `package.json`:
 
-## Contributing to Volta
+```sh
+volta pin node@lts
+```
 
-Issues and pull requests are welcome, but this fork's priorities follow the
-maintainer's personal workflows. Before contributing, please read the
-[code of conduct](CODE_OF_CONDUCT.md). The upstream
-[Contributing Guide](https://docs.volta.sh/contributing/) remains useful for
-development setup and repository conventions.
+Volta saves the resolved version in `package.json` and uses it automatically
+whenever you work in that project. Commit the file to share the version with
+your team.
+
+### Install a CLI tool (Volta 3)
+
+Use `volta tool install` for CLI packages, instead of `volta install`:
+
+```sh
+volta tool install prettier
+prettier --version
+```
+
+Tools get their own environments; Volta installs the pnpm backend automatically.
+Run `volta tool --help` for upgrades, removal, and other tool commands.
+
+## More information
+
+- `volta --help` — available commands
+- [Upstream guide](https://docs.volta.sh/guide/understanding) — core concepts
+- [Release notes](RELEASES.md) — changes and migration notes for this fork
+- [Contributing](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ## Acknowledgements
 
-Volta was originally developed by David Herman and Charles Pierce. The original
-project and its contributors developed and maintained Volta through November
-2025. Since September 2026, this fork has been independently continued and
-maintained by an individual for personal use.
+Volta was originally developed by David Herman, Charles Pierce, and the
+[upstream contributors](https://github.com/volta-cli/volta/graphs/contributors).

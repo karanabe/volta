@@ -1,17 +1,23 @@
 # Compatibility
 
-Volta currently tests against the following platforms, and will treat it as a breaking change to drop support for them:
+This fork is maintained for personal use, primarily on WSL2/Linux x86-64.
+Compatibility outside the maintainer's workflows is not guaranteed. The
+upstream project's historical OS minimums and SemVer support promises are not
+independently verified by this fork.
 
-- macOS
-    - x86-64
-    - Apple Silicon
-- Linux x86-64
-- Windows x86-64
+The current [test workflow](.github/workflows/test.yml) runs workspace and
+acceptance tests on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
+Real-network smoke tests run on Ubuntu and cover Current/LTS Node, npm/npx,
+pnpm, Yarn, and pnpm-backed isolated CLI environments. The isolated-environment
+acceptance fixtures currently run on Unix only.
 
-We compile release artifacts compatible with the following, and likewise will treat it as a breaking change to drop support for them:
+The [release workflow](.github/workflows/release.yml) builds:
 
-- macOS v11
-- RHEL and CentOS v7
-- Windows 10
+- Linux x86-64 and ARM64 archives using cross-rs.
+- macOS universal archives for x86-64 and Apple Silicon.
+- Windows x86-64 and ARM64 installers and archives.
 
-In general, Volta should build and run against any other modern hardware and operating system supported by stable Rust, and we will make a best effort not to break them. However, we do *not* include them in our SemVer guarantees or test against them.
+Release builds depend on the test workflow. Producing an artifact does not
+prove compatibility with every older OS version or with every Node/package
+manager version. The exact Rust toolchain is recorded in
+[rust-toolchain.toml](rust-toolchain.toml).
