@@ -5,10 +5,12 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use cfg_if::cfg_if;
 use headers::{Expires, Header};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use node_semver::Version;
+use sha2::{Digest, Sha256, Sha512};
 use test_support::{self, ok_or_panic, paths, paths::PathExt, process::ProcessBuilder};
 use volta_core::fs::{set_executable, symlink_file};
 use volta_core::tool::{Node, Pnpm, Yarn};
@@ -159,6 +161,10 @@ pub trait DistroFixture: From<DistroMetadata> {
     fn server_path(&self) -> String;
     fn fixture_path(&self) -> String;
     fn metadata(&self) -> &DistroMetadata;
+
+    fn integrity_metadata(&self, _bytes: &[u8]) -> Option<(String, String)> {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -185,6 +191,18 @@ pub struct Yarn1Fixture {
 
 pub struct YarnBerryFixture {
     pub metadata: DistroMetadata,
+}
+
+fn npm_integrity_metadata(package: &str, version: &str, bytes: &[u8]) -> (String, String) {
+    (
+        format!("/{package}/{version}"),
+        serde_json::json!({
+            "name": package,
+            "version": version,
+            "dist": { "integrity": format!("sha512-{}", STANDARD.encode(Sha512::digest(bytes))) }
+        })
+        .to_string(),
+    )
 }
 
 impl From<DistroMetadata> for NodeFixture {
@@ -218,6 +236,18 @@ impl From<DistroMetadata> for YarnBerryFixture {
 }
 
 impl DistroFixture for NodeFixture {
+    fn integrity_metadata(&self, bytes: &[u8]) -> Option<(String, String)> {
+        let version = Version::parse(self.metadata.version).unwrap();
+        Some((
+            format!("/v{version}/SHASUMS256.txt"),
+            format!(
+                "{:x}  {}\n",
+                Sha256::digest(bytes),
+                Node::archive_filename(&version)
+            ),
+        ))
+    }
+
     fn server_path(&self) -> String {
         let version = Version::parse(self.metadata.version).unwrap();
         let filename = Node::archive_filename(&version);
@@ -236,6 +266,10 @@ impl DistroFixture for NodeFixture {
 }
 
 impl DistroFixture for NpmFixture {
+    fn integrity_metadata(&self, bytes: &[u8]) -> Option<(String, String)> {
+        Some(npm_integrity_metadata("npm", self.metadata.version, bytes))
+    }
+
     fn server_path(&self) -> String {
         format!("/npm/-/npm-{}.tgz", self.metadata.version)
     }
@@ -250,6 +284,10 @@ impl DistroFixture for NpmFixture {
 }
 
 impl DistroFixture for PnpmFixture {
+    fn integrity_metadata(&self, bytes: &[u8]) -> Option<(String, String)> {
+        Some(npm_integrity_metadata("pnpm", self.metadata.version, bytes))
+    }
+
     fn server_path(&self) -> String {
         format!("/pnpm/-/pnpm-{}.tgz", self.metadata.version)
     }
@@ -264,6 +302,10 @@ impl DistroFixture for PnpmFixture {
 }
 
 impl DistroFixture for Yarn1Fixture {
+    fn integrity_metadata(&self, bytes: &[u8]) -> Option<(String, String)> {
+        Some(npm_integrity_metadata("yarn", self.metadata.version, bytes))
+    }
+
     fn server_path(&self) -> String {
         format!("/yarn/-/yarn-{}.tgz", self.metadata.version)
     }
@@ -278,6 +320,14 @@ impl DistroFixture for Yarn1Fixture {
 }
 
 impl DistroFixture for YarnBerryFixture {
+    fn integrity_metadata(&self, bytes: &[u8]) -> Option<(String, String)> {
+        Some(npm_integrity_metadata(
+            "@yarnpkg/cli-dist",
+            self.metadata.version,
+            bytes,
+        ))
+    }
+
     fn server_path(&self) -> String {
         format!(
             "/@yarnpkg/cli-dist/-/cli-dist-{}.tgz",
@@ -466,6 +516,18 @@ impl SandboxBuilder {
         let fixture_path = fx.fixture_path();
 
         let metadata = fx.metadata();
+
+        if let Some((path, body)) =
+            fx.integrity_metadata(&fs::read(&fixture_path).expect("archive fixture"))
+        {
+            let mock = self
+                .root
+                .server
+                .mock("GET", path.as_str())
+                .with_body(body)
+                .create();
+            self.root.mocks.push(mock);
+        }
 
         if let Some(uncompressed_size) = metadata.uncompressed_size {
             // This can be abstracted when https://github.com/rust-lang/rust/issues/52963 lands.

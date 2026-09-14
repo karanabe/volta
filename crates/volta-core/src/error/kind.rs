@@ -460,6 +460,11 @@ pub enum ErrorKind {
         reason: String,
     },
 
+    /// The authoritative checksum is missing, invalid, or does not match an archive.
+    ArchiveIntegrityError {
+        tool: String,
+    },
+
     /// Thrown when an npm package cannot be treated as a CLI tool.
     ToolHasNoExecutables {
         package: String,
@@ -1396,6 +1401,11 @@ Run `volta tool uninstall {0}` and then install it again.",
 Only packages with a valid `bin` entry can be installed with `volta tool install`.",
                 package
             ),
+            ErrorKind::ArchiveIntegrityError { tool } => write!(
+                f,
+                "Could not verify the archive for {}.\n\nThe published checksum is missing or invalid, or the archive does not match it.\nNo unverified archive was installed. Check the download source and try again.",
+                tool
+            ),
             ErrorKind::ToolMetadataError { operation, path } => write!(
                 f,
                 "Could not {} isolated tool metadata at {}.
@@ -1696,6 +1706,7 @@ impl ErrorKind {
             ErrorKind::StringifyBinConfigError => ExitCode::UnknownError,
             ErrorKind::StringifyPackageConfigError => ExitCode::UnknownError,
             ErrorKind::ToolEnvironmentCorrupt { .. } => ExitCode::ConfigurationError,
+            ErrorKind::ArchiveIntegrityError { .. } => ExitCode::NetworkError,
             ErrorKind::ToolHasNoExecutables { .. } => ExitCode::InvalidArguments,
             ErrorKind::ToolMetadataError { .. } => ExitCode::FileSystemError,
             ErrorKind::ToolNotInstalled { .. } => ExitCode::ExecutableNotFound,

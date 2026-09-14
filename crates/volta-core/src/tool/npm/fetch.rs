@@ -1,15 +1,15 @@
 //! Provides fetcher for npm distributions
 
-use std::fs::{write, File};
+use std::fs::write;
 use std::path::Path;
 
-use super::super::download_tool_error;
 use super::super::registry::public_registry_package;
 use crate::error::{Context, ErrorKind, Fallible};
-use crate::fs::{create_staging_dir, create_staging_file, rename, set_executable};
+use crate::fs::{create_staging_dir, rename, set_executable};
 use crate::hook::ToolHooks;
 use crate::layout::volta_home;
 use crate::style::{progress_bar, tool_version};
+use crate::tool::distribution::{npm_integrity, VerifiedDownload};
 use crate::tool::{self, Npm};
 use crate::version::VersionSpec;
 use archive::{Archive, Tarball};
@@ -21,35 +21,19 @@ pub fn fetch(version: &Version, hooks: Option<&ToolHooks<Npm>>) -> Fallible<()> 
     let npm_dir = volta_home()?.npm_inventory_dir();
     let cache_file = npm_dir.join(Npm::archive_filename(&version.to_string()));
 
-    let (archive, staging) = match load_cached_distro(&cache_file) {
-        Some(archive) => {
-            debug!(
-                "Loading {} from cached archive at '{}'",
-                tool_version("npm", version),
-                cache_file.display()
-            );
-            (archive, None)
-        }
-        None => {
-            let staging = create_staging_file()?;
-            let remote_url = determine_remote_url(version, hooks)?;
-            let archive = fetch_remote_distro(version, &remote_url, staging.path())?;
-            (archive, Some(staging))
-        }
-    };
-
-    unpack_archive(archive, version)?;
-
-    if let Some(staging_file) = staging {
-        ensure_containing_dir_exists(&cache_file).with_context(|| {
-            ErrorKind::ContainingDirError {
-                path: cache_file.clone(),
-            }
+    let download = VerifiedDownload::fetch(
+        tool::Spec::Npm(VersionSpec::Exact(version.clone())),
+        cache_file,
+        || determine_remote_url(version, hooks),
+        || npm_integrity("npm", version),
+    )?;
+    let archive =
+        Tarball::load(download.open()?).with_context(|| ErrorKind::UnpackArchiveError {
+            tool: "npm".into(),
+            version: version.to_string(),
         })?;
-        staging_file
-            .persist(cache_file)
-            .with_context(|| ErrorKind::PersistInventoryError { tool: "npm".into() })?;
-    }
+    unpack_archive(archive, version)?;
+    download.persist()?;
 
     Ok(())
 }
@@ -103,18 +87,6 @@ fn unpack_archive(archive: Box<dyn Archive>, version: &Version) -> Fallible<()> 
     Ok(())
 }
 
-/// Return the archive if it is valid. It may have been corrupted or interrupted in the middle of
-/// downloading.
-/// ISSUE(#134) - verify checksum
-fn load_cached_distro(file: &Path) -> Option<Box<dyn Archive>> {
-    if file.is_file() {
-        let file = File::open(file).ok()?;
-        Tarball::load(file).ok()
-    } else {
-        None
-    }
-}
-
 /// Determine the remote URL to download from, using the hooks if avaialble
 fn determine_remote_url(version: &Version, hooks: Option<&ToolHooks<Npm>>) -> Fallible<String> {
     let version_str = version.to_string();
@@ -129,19 +101,6 @@ fn determine_remote_url(version: &Version, hooks: Option<&ToolHooks<Npm>>) -> Fa
         }
         _ => Ok(public_registry_package("npm", &version_str)),
     }
-}
-
-/// Fetch the distro archive from the internet
-fn fetch_remote_distro(
-    version: &Version,
-    url: &str,
-    staging_path: &Path,
-) -> Fallible<Box<dyn Archive>> {
-    debug!("Downloading {} from {}", tool_version("npm", version), url);
-    Tarball::fetch(url, staging_path).with_context(download_tool_error(
-        tool::Spec::Npm(VersionSpec::Exact(version.clone())),
-        url,
-    ))
 }
 
 /// Overwrite the launcher script

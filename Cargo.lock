@@ -2280,6 +2280,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "volta"
 version = "3.0.0-alpha.2"
 dependencies = [
+ "base64",
  "cfg-if",
  "ci_info",
  "clap",
@@ -2294,6 +2295,7 @@ dependencies = [
  "once_cell",
  "serde",
  "serde_json",
+ "sha2",
  "test-support",
  "textwrap",
  "volta-core",
@@ -2308,6 +2310,7 @@ version = "0.1.0"
 dependencies = [
  "archive",
  "attohttpc",
+ "base64",
  "cfg-if",
  "chain-map",
  "chrono",
@@ -2336,6 +2339,7 @@ dependencies = [
  "retry",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "tempfile",
  "terminal_size",

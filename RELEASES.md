@@ -10,6 +10,7 @@
 - Preserve project-local executable precedence and compatibility resolution for packages installed with the legacy Volta layout
 - Enable first-class pnpm support without `VOLTA_FEATURE_PNPM`
 - Pass npm, pnpm, and Yarn global package commands through to the selected package manager
+- Verify Node, npm, pnpm, and Yarn archives against official checksums or registry integrity before extraction. Mirrors must serve the official archive bytes; previously verified cached archives can be revalidated offline.
 
 # Version 2.0.3
 

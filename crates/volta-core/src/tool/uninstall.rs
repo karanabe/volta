@@ -2,6 +2,7 @@
 
 use node_semver::Version;
 
+use super::distribution::remove_cached_archive;
 use super::{environment, Node, Npm, Pnpm, Yarn};
 use crate::error::{ErrorKind, Fallible};
 use crate::fs::{remove_dir_if_exists, remove_file_if_exists};
@@ -38,7 +39,7 @@ pub(super) fn node(requested: VersionSpec, force: bool, session: &mut Session) -
 
     session.toolchain_mut()?.clear_active_node(&version)?;
     remove_dir_if_exists(image)?;
-    remove_file_if_exists(archive)?;
+    remove_cached_archive(&archive)?;
     remove_file_if_exists(npm_metadata)?;
     info!(
         "{} {} uninstalled",
@@ -77,7 +78,7 @@ pub(super) fn npm(requested: VersionSpec, session: &mut Session) -> Fallible<()>
         session.toolchain_mut()?.set_active_npm(None)?;
     }
     remove_dir_if_exists(image)?;
-    remove_file_if_exists(archive)?;
+    remove_cached_archive(&archive)?;
     info!(
         "{} {} uninstalled",
         success_prefix(),
@@ -107,7 +108,7 @@ pub(super) fn pnpm(requested: VersionSpec, session: &mut Session) -> Fallible<()
         session.toolchain_mut()?.set_active_pnpm(None)?;
     }
     remove_dir_if_exists(image)?;
-    remove_file_if_exists(archive)?;
+    remove_cached_archive(&archive)?;
     info!(
         "{} {} uninstalled",
         success_prefix(),
@@ -137,7 +138,7 @@ pub(super) fn yarn(requested: VersionSpec, session: &mut Session) -> Fallible<()
         session.toolchain_mut()?.set_active_yarn(None)?;
     }
     remove_dir_if_exists(image)?;
-    remove_file_if_exists(archive)?;
+    remove_cached_archive(&archive)?;
     info!(
         "{} {} uninstalled",
         success_prefix(),

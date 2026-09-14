@@ -5,11 +5,12 @@ use std::path::{Path, PathBuf};
 
 use super::NodeVersion;
 use crate::error::{Context, ErrorKind, Fallible};
-use crate::fs::{create_staging_dir, create_staging_file, rename};
+use crate::fs::{create_staging_dir, rename};
 use crate::hook::ToolHooks;
 use crate::layout::volta_home;
 use crate::style::{progress_bar, tool_version};
-use crate::tool::{self, download_tool_error, Node};
+use crate::tool::distribution::{node_integrity, VerifiedDownload};
+use crate::tool::{self, Node};
 use crate::version::{parse_version, VersionSpec};
 use archive::{self, Archive};
 use cfg_if::cfg_if;
@@ -49,37 +50,24 @@ pub fn fetch(version: &Version, hooks: Option<&ToolHooks<Node>>) -> Fallible<Nod
     let node_dir = home.node_inventory_dir();
     let cache_file = node_dir.join(Node::archive_filename(version));
 
-    let (archive, staging) = match load_cached_distro(&cache_file) {
-        Some(archive) => {
-            debug!(
-                "Loading {} from cached archive at '{}'",
-                tool_version("node", version),
-                cache_file.display()
-            );
-            (archive, None)
-        }
-        None => {
-            let staging = create_staging_file()?;
-            let remote_url = determine_remote_url(version, hooks)?;
-            let archive = fetch_remote_distro(version, &remote_url, staging.path())?;
-            (archive, Some(staging))
-        }
-    };
-
-    let node_version = unpack_archive(archive, version)?;
-
-    if let Some(staging_file) = staging {
-        ensure_containing_dir_exists(&cache_file).with_context(|| {
-            ErrorKind::ContainingDirError {
-                path: cache_file.clone(),
-            }
+    let download = VerifiedDownload::fetch(
+        tool::Spec::Node(VersionSpec::Exact(version.clone())),
+        cache_file,
+        || determine_remote_url(version, hooks),
+        || {
+            node_integrity(
+                &format!("{}/v{}/SHASUMS256.txt", public_node_server_root(), version),
+                &Node::archive_filename(version),
+            )
+        },
+    )?;
+    let archive =
+        archive::load_native(download.open()?).with_context(|| ErrorKind::UnpackArchiveError {
+            tool: "Node".into(),
+            version: version.to_string(),
         })?;
-        staging_file
-            .persist(cache_file)
-            .with_context(|| ErrorKind::PersistInventoryError {
-                tool: "Node".into(),
-            })?;
-    }
+    let node_version = unpack_archive(archive, version)?;
+    download.persist()?;
 
     Ok(node_version)
 }
@@ -134,18 +122,6 @@ fn unpack_archive(archive: Box<dyn Archive>, version: &Version) -> Fallible<Node
     })
 }
 
-/// Return the archive if it is valid. It may have been corrupted or interrupted in the middle of
-/// downloading.
-// ISSUE(#134) - verify checksum
-fn load_cached_distro(file: &Path) -> Option<Box<dyn Archive>> {
-    if file.is_file() {
-        let file = File::open(file).ok()?;
-        archive::load_native(file).ok()
-    } else {
-        None
-    }
-}
-
 /// Determine the remote URL to download from, using the hooks if available
 fn determine_remote_url(version: &Version, hooks: Option<&ToolHooks<Node>>) -> Fallible<String> {
     let distro_file_name = Node::archive_filename(version);
@@ -164,19 +140,6 @@ fn determine_remote_url(version: &Version, hooks: Option<&ToolHooks<Node>>) -> F
             distro_file_name
         )),
     }
-}
-
-/// Fetch the distro archive from the internet
-fn fetch_remote_distro(
-    version: &Version,
-    url: &str,
-    staging_path: &Path,
-) -> Fallible<Box<dyn Archive>> {
-    debug!("Downloading {} from {}", tool_version("node", version), url);
-    archive::fetch_native(url, staging_path).with_context(download_tool_error(
-        tool::Spec::Node(VersionSpec::Exact(version.clone())),
-        url,
-    ))
 }
 
 /// The portion of npm's `package.json` file that we care about
