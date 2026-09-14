@@ -531,6 +531,72 @@ fn upgrades_from_the_receipt_and_preserves_the_previous_install_on_failure() {
 }
 
 #[test]
+fn reinstall_replaces_package_contents_even_when_the_receipt_inputs_match() {
+    let s = test_sandbox();
+
+    assert_that!(s.volta("tool install alpha@1"), execs().with_status(0));
+    let old_environment = installed_environment("alpha");
+    fs::write(
+        old_environment.join("node_modules/alpha/cli.sh"),
+        "#!/bin/sh\necho stale-content\n",
+    )
+    .expect("modify installed package content without changing its launcher link");
+
+    assert_that!(s.volta("tool install alpha@1"), execs().with_status(0));
+    assert_that!(
+        s.exec_shim("alpha", "rebuilt"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("alpha@1.0.0 args: rebuilt")
+    );
+    assert_ne!(old_environment, installed_environment("alpha"));
+    assert!(!old_environment.exists());
+}
+
+#[test]
+fn upgrade_repairs_missing_environment_files_from_the_intact_receipt() {
+    let s = test_sandbox();
+
+    assert_that!(s.volta("tool install alpha@1"), execs().with_status(0));
+    let old_environment = installed_environment("alpha");
+    fs::remove_file(old_environment.join("node_modules/.bin/alpha"))
+        .expect("remove installed launcher");
+    fs::remove_file(old_environment.join("pnpm-lock.yaml")).expect("remove installed lockfile");
+    fs::remove_file(old_environment.join("runtime/node")).expect("remove runtime link");
+
+    assert_that!(s.volta("tool upgrade alpha"), execs().with_status(0));
+    assert_that!(
+        s.exec_shim("alpha", "repaired"),
+        execs()
+            .with_status(0)
+            .with_stdout_contains("alpha@1.0.0 args: repaired")
+    );
+    assert_ne!(old_environment, installed_environment("alpha"));
+    assert!(!old_environment.exists());
+}
+
+#[test]
+fn runtime_removal_checks_receipts_even_when_environment_files_are_missing() {
+    let s = test_sandbox();
+
+    assert_that!(s.volta("tool install alpha@1"), execs().with_status(0));
+    let environment = installed_environment("alpha");
+    fs::remove_file(environment.join("pnpm-lock.yaml")).expect("remove installed lockfile");
+    assert_that!(
+        s.volta("uninstall node@11.10.1"),
+        execs()
+            .with_status(8)
+            .with_stderr_contains("[..]used by isolated tools: alpha[..]")
+    );
+
+    fs::remove_file(environment.join("volta-tool.json")).expect("remove installed receipt");
+    assert_that!(
+        s.volta("uninstall node@11.10.1 --force"),
+        execs().with_status(0)
+    );
+}
+
+#[test]
 fn upgrade_all_and_forced_node_removal_have_explicit_results() {
     let s = sandbox()
         .layout_file("v4")

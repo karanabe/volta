@@ -1391,7 +1391,8 @@ at {}
 
 {}
 
-Run `volta tool uninstall {0}` and then install it again.",
+Reinstall the tool with `volta tool install <package-spec>`.
+If its receipt is intact, `volta tool upgrade <package>` can also rebuild it.",
                 package, reason
             ),
             ErrorKind::ToolHasNoExecutables { package } => write!(

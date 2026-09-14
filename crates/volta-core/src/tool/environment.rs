@@ -13,7 +13,7 @@ use std::path::{Component, Path, PathBuf};
 use log::{debug, info, warn};
 use node_semver::Version;
 use sha2::{Digest, Sha256};
-use tempfile::{tempdir_in, TempDir};
+use tempfile::{Builder, TempDir};
 use validate_npm_package_name::{validate, Validity};
 
 use self::manifest::{
@@ -120,6 +120,16 @@ struct ToolEnvironment {
 
 impl ToolEnvironment {
     fn load(package: &str, installation: &str) -> Fallible<Self> {
+        let environment = Self::load_receipt(package, installation)?;
+        validate_lockfile(&environment.manifest, &environment.root)?;
+        validate_executable_files(&environment.manifest, &environment.root)?;
+        validate_runtime_reference(&environment.manifest, &environment.root)?;
+        Ok(environment)
+    }
+
+    // Rebuilding only needs the receipt: missing launchers, lockfiles, or runtime
+    // links must not prevent an upgrade from repairing an installation.
+    fn load_receipt(package: &str, installation: &str) -> Fallible<Self> {
         validate_registry_reference(package, installation)?;
         let root = volta_home()?.tool_installation_dir(package, installation);
         let manifest = ToolManifest::read(&root.join(MANIFEST_FILE))?;
@@ -130,9 +140,6 @@ impl ToolEnvironment {
             ));
         }
         validate_installation_id(&manifest)?;
-        validate_lockfile(&manifest, &root)?;
-        validate_executable_files(&manifest, &root)?;
-        validate_runtime_reference(&manifest, &root)?;
         Ok(Self { root, manifest })
     }
 
@@ -205,6 +212,7 @@ pub fn upgrade(
     session: &mut Session,
 ) -> Fallible<InstalledTool> {
     validate_package_name(package)?;
+    let _lock = VoltaLock::acquire()?;
     let home = volta_home()?;
     let registry = ToolRegistry::read(home.tool_registry_file())?;
     let registered = registry
@@ -213,7 +221,7 @@ pub fn upgrade(
         .ok_or_else(|| ErrorKind::ToolNotInstalled {
             tool: package.to_owned(),
         })?;
-    let current = ToolEnvironment::load(package, &registered.installation)?;
+    let current = ToolEnvironment::load_receipt(package, &registered.installation)?;
     let spec = ToolPackageSpec::parse(current.manifest.package.requested.clone())?;
     let runtime = match node {
         Some(requested) => resolve_runtime(requested, session)?,
@@ -247,7 +255,7 @@ pub fn tools_using_node(version: &Version) -> Fallible<Vec<String>> {
         .tools
         .iter()
         .filter_map(|(package, registered)| {
-            match ToolEnvironment::load(package, &registered.installation) {
+            match ToolEnvironment::load_receipt(package, &registered.installation) {
                 Ok(environment) if environment.manifest.runtime.resolved == *version => {
                     Some(Ok(package.clone()))
                 }
@@ -276,7 +284,10 @@ fn install_resolved(
     let staging_root = home.tmp_dir().join("tool-environments");
     fs::create_dir_all(&staging_root)
         .map_err(|_| environment_metadata_error("create", &staging_root))?;
-    let staging = tempdir_in(&staging_root)
+    let staging = Builder::new()
+        .prefix("tool-")
+        .rand_bytes(16)
+        .tempdir_in(&staging_root)
         .map_err(|_| environment_metadata_error("create", &staging_root))?;
 
     write_environment_package_json(staging.path())?;
@@ -311,6 +322,14 @@ fn install_resolved(
     let mut manifest = ToolManifest {
         schema_version: 2,
         installation_id: String::new(),
+        generation: Some(
+            staging
+                .path()
+                .file_name()
+                .expect("staging directory has a generated name")
+                .to_string_lossy()
+                .into_owned(),
+        ),
         package: PackageSelection {
             requested: spec.requested().to_owned(),
             name: spec.name().to_owned(),
@@ -345,7 +364,7 @@ fn publish_and_register(
 ) -> Fallible<InstalledTool> {
     let home = volta_home()?;
     let final_dir = home.tool_installation_dir(package, &manifest.installation_id);
-    let published_new = publish_environment(staging, &final_dir, &manifest)?;
+    publish_environment(staging, &final_dir)?;
     let old_installation = registry
         .tools
         .get(package)
@@ -395,18 +414,14 @@ fn publish_and_register(
             Err(error) => {
                 let _ = shim::delete(command);
                 rollback_shims(&created_shims);
-                if published_new {
-                    let _ = remove_environment(&final_dir);
-                }
+                let _ = remove_environment(&final_dir);
                 return Err(error);
             }
         }
     }
     if let Err(error) = registry.write(registry_path) {
         rollback_shims(&created_shims);
-        if published_new {
-            let _ = remove_environment(&final_dir);
-        }
+        let _ = remove_environment(&final_dir);
         return Err(error);
     }
 
@@ -932,43 +947,19 @@ fn validate_runtime_reference(manifest: &ToolManifest, root: &Path) -> Fallible<
     Ok(())
 }
 
-fn publish_environment(
-    staging: TempDir,
-    destination: &Path,
-    expected: &ToolManifest,
-) -> Fallible<bool> {
+fn publish_environment(staging: TempDir, destination: &Path) -> Fallible<()> {
     let parent = destination
         .parent()
         .expect("tool installation path has a parent");
     fs::create_dir_all(parent).map_err(|_| environment_metadata_error("create", parent))?;
 
-    if destination.exists() {
-        let existing = ToolManifest::read(&destination.join(MANIFEST_FILE))?;
-        validate_manifest_identity(&existing, expected)?;
-        validate_installation_id(&existing)?;
-        validate_lockfile(&existing, destination)?;
-        validate_executable_files(&existing, destination)?;
-        validate_runtime_reference(&existing, destination)?;
-        return Ok(false);
+    // Each build has its own generation, so publication must never reuse or
+    // replace another environment. Keep TempDir armed to clean up failed renames.
+    if fs::symlink_metadata(destination).is_ok() {
+        return Err(environment_metadata_error("publish", destination));
     }
-
-    let staging_path = staging.keep();
-    rename(&staging_path, destination)
-        .map_err(|_| environment_metadata_error("publish", destination))?;
-    Ok(true)
-}
-
-fn validate_manifest_identity(existing: &ToolManifest, expected: &ToolManifest) -> Fallible<()> {
-    if existing.package.name == expected.package.name
-        && existing.installation_id == expected.installation_id
-    {
-        Ok(())
-    } else {
-        Err(corrupt(
-            &expected.package.name,
-            "an installation identifier points to different metadata",
-        ))
-    }
+    rename(staging.path(), destination)
+        .map_err(|_| environment_metadata_error("publish", destination))
 }
 
 fn validate_command_conflicts(
@@ -1191,6 +1182,20 @@ fn corrupt(package: &str, reason: &str) -> crate::error::VoltaError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receipts_without_a_generation_keep_their_original_identity() {
+        let legacy = concat!(
+            r#"{"schema_version":2,"installation_id":"","package":{"requested":"alpha@1","name":"alpha","resolved":"1.0.0"},"#,
+            r#""runtime":{"requested":"22.0.0","resolved":"22.0.0"},"installer":{"kind":"pnpm","version":"10.0.0"},"#,
+            r#""settings":{},"executables":[],"lockfile_integrity":"sha256:example"}"#,
+        );
+        let mut manifest: ToolManifest = serde_json::from_str(legacy).expect("legacy receipt");
+        assert!(manifest.generation.is_none());
+        assert_eq!(serde_json::to_string(&manifest).unwrap(), legacy);
+        manifest.installation_id = format!("{:x}", Sha256::digest(legacy.as_bytes()));
+        validate_installation_id(&manifest).expect("original receipt identity must remain valid");
+    }
 
     #[test]
     fn parses_unscoped_and_scoped_specs() {

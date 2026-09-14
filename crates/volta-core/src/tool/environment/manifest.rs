@@ -20,6 +20,10 @@ pub(super) const RUNTIME_LINK: &str = "runtime/node";
 pub(super) struct ToolManifest {
     pub(super) schema_version: u32,
     pub(super) installation_id: String,
+    /// Distinguishes rebuilds whose inputs match but whose installed files may differ.
+    /// Omitted by older schema-v2 receipts; preserve their identity when reading them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) generation: Option<String>,
     pub(super) package: PackageSelection,
     pub(super) runtime: RuntimeSelection,
     pub(super) installer: InstallerSelection,

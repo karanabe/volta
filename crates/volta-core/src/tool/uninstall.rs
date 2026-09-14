@@ -19,13 +19,15 @@ pub(super) fn node(requested: VersionSpec, force: bool, session: &mut Session) -
         .default_platform()?
         .map(|platform| platform.node.clone());
     let version = exact_or_default("node", requested, default)?;
-    let tools = environment::tools_using_node(&version)?;
-    if !force && !tools.is_empty() {
-        return Err(ErrorKind::ToolRuntimeInUse {
-            version: version.to_string(),
-            tools,
+    if !force {
+        let tools = environment::tools_using_node(&version)?;
+        if !tools.is_empty() {
+            return Err(ErrorKind::ToolRuntimeInUse {
+                version: version.to_string(),
+                tools,
+            }
+            .into());
         }
-        .into());
     }
 
     let home = volta_home()?;
