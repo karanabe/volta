@@ -12,6 +12,7 @@
 - Pass npm, pnpm, and Yarn global package commands through to the selected package manager
 - Verify Node, npm, pnpm, and Yarn archives against official checksums or registry integrity before extraction. Mirrors must serve the official archive bytes; previously verified cached archives can be revalidated offline.
 - Rebuild isolated tools in fresh environments before replacing previous installations. Upgrade can repair damaged environment files when the tool receipt is intact; otherwise, reinstall the tool.
+- Keep superseded tool environments available while Volta-launched processes use them, so reinstalling or upgrading does not break running CLIs such as Codex. A later successful update collects environments after those processes exit. Installations created before execution tracking remain until `volta tool uninstall`.
 - Make `volta which` follow normal command resolution, including project-local and isolated tools; Yarn-delegated commands return the Yarn launcher. `volta tool which` selects only isolated tools.
 
 # Version 2.0.3

@@ -10,7 +10,7 @@ use crate::session::Session;
 use log::debug;
 use node_semver::Version;
 
-use self::executor::{ToolCommand, ToolKind};
+use self::executor::ToolCommand;
 
 pub mod binary;
 mod executor;
@@ -76,13 +76,7 @@ pub fn execute_tool_environment(
     session: &mut Session,
 ) -> Fallible<ExitStatus> {
     let resolved = crate::tool::environment::resolve_selector(selector)?;
-    ToolCommand::new(
-        resolved.path,
-        args,
-        None,
-        ToolKind::ToolEnvironment(resolved.runtime_bin),
-    )
-    .execute(session)
+    ToolCommand::isolated(resolved, args).execute(session)
 }
 
 /// Get the appropriate Tool command, based on the requested executable and arguments

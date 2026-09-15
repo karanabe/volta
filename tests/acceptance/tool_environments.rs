@@ -3,7 +3,9 @@
 #![cfg(unix)]
 
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::process::{Child, Stdio};
 
 use crate::support::sandbox::{sandbox, PackageBinInfo, Sandbox};
 use hamcrest2::assert_that;
@@ -157,6 +159,11 @@ if [ -n "$command" ]; then
 echo "$name@$version args: \$*"
 if [ "\$1" = "--node-path" ]; then
   command -v node
+fi
+if [ "\$1" = "--wait-for-update" ]; then
+  read -r reply || exit 0
+  "\$0" after-update || exit 1
+  node --version
 fi
 EOF
   chmod +x "$physical/cli.sh"
@@ -596,6 +603,111 @@ fn reinstall_replaces_package_contents_even_when_the_receipt_inputs_match() {
             .with_stdout_contains("alpha@1.0.0 args: rebuilt")
     );
     assert_ne!(old_environment, installed_environment("alpha"));
+    assert!(!old_environment.exists());
+}
+
+// Closing stdin releases the fixture's wait even if an assertion panics.
+struct RunningTool(Child);
+
+impl Drop for RunningTool {
+    fn drop(&mut self) {
+        drop(self.0.stdin.take());
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn updates_keep_running_tools_usable_and_collect_them_after_exit() {
+    let s = test_sandbox();
+
+    for update in ["tool install alpha@2", "tool upgrade alpha"] {
+        for launch in ["shim", "tool run alpha", "run alpha"] {
+            assert_that!(s.volta("tool install alpha@1"), execs().with_status(0));
+            let old_environment = installed_environment("alpha");
+            let command = if launch == "shim" {
+                s.exec_shim("alpha", "--wait-for-update")
+            } else {
+                s.volta(&format!("{launch} --wait-for-update"))
+            };
+            let processes = (0..2)
+                .map(|_| {
+                    let mut running = RunningTool(
+                        command
+                            .build_command()
+                            .stdin(Stdio::piped())
+                            .stdout(Stdio::piped())
+                            .spawn()
+                            .expect("start installed tool"),
+                    );
+                    let mut output = BufReader::new(running.0.stdout.take().expect("tool stdout"));
+                    let mut ready = String::new();
+                    output.read_line(&mut ready).expect("tool ready output");
+                    assert_eq!(ready.trim(), "alpha@1.0.0 args: --wait-for-update");
+                    (running, output)
+                })
+                .collect::<Vec<_>>();
+
+            assert_that!(s.volta(update), execs().with_status(0));
+            assert_ne!(old_environment, installed_environment("alpha"));
+            assert!(
+                old_environment.exists(),
+                "running tool's files must survive"
+            );
+            let version = installed_manifest("alpha")["package"]["resolved"]
+                .as_str()
+                .expect("current version")
+                .to_owned();
+            assert_that!(
+                s.exec_shim("alpha", "new-process"),
+                execs()
+                    .with_status(0)
+                    .with_stdout_contains(format!("alpha@{version} args: new-process"))
+            );
+
+            for (mut running, output) in processes {
+                assert_that!(s.volta(update), execs().with_status(0));
+                assert!(
+                    old_environment.exists(),
+                    "remaining process still needs its files"
+                );
+                writeln!(running.0.stdin.as_mut().expect("tool stdin"), "continue")
+                    .expect("resume installed tool");
+                let lines = output
+                    .lines()
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("tool output");
+                assert!(running.0.wait().expect("tool exit").success());
+                assert_eq!(
+                    lines,
+                    ["alpha@1.0.0 args: after-update", "node args: --version"]
+                );
+            }
+
+            assert_that!(s.volta(update), execs().with_status(0));
+            assert!(
+                !old_environment.exists(),
+                "unused environment must be collected"
+            );
+        }
+    }
+}
+
+#[test]
+fn updates_preserve_environments_created_before_execution_tracking() {
+    let s = test_sandbox();
+
+    assert_that!(s.volta("tool install alpha@1"), execs().with_status(0));
+    let old_environment = installed_environment("alpha");
+    fs::remove_file(old_environment.join("volta-tool.lock"))
+        .expect("simulate an installation created before execution tracking");
+    assert_that!(
+        s.exec_shim("alpha", "older-install"),
+        execs().with_status(0)
+    );
+    assert_that!(s.volta("tool install alpha@2"), execs().with_status(0));
+    assert_that!(s.volta("tool upgrade alpha"), execs().with_status(0));
+    assert!(old_environment.exists());
+    assert_that!(s.volta("tool uninstall alpha"), execs().with_status(0));
     assert!(!old_environment.exists());
 }
 

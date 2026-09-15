@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::fs::File;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 
@@ -9,6 +10,7 @@ use crate::error::{Context, ErrorKind, Fallible};
 use crate::platform::{CliPlatform, Platform, System};
 use crate::session::Session;
 use crate::signal::pass_control_to_shim;
+use crate::tool::environment::ResolvedToolCommand;
 
 pub enum Executor {
     Tool(Box<ToolCommand>),
@@ -46,6 +48,7 @@ pub struct ToolCommand {
     command: Command,
     platform: Option<Platform>,
     kind: ToolKind,
+    execution_lock: Option<File>,
 }
 
 /// The kind of tool being executed, used to determine the correct execution context
@@ -75,7 +78,23 @@ impl ToolCommand {
             command,
             platform,
             kind,
+            execution_lock: None,
         }
+    }
+
+    pub(super) fn isolated<A, S>(tool: ResolvedToolCommand, args: A) -> Self
+    where
+        A: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let mut command = Self::new(
+            tool.path,
+            args,
+            None,
+            ToolKind::ToolEnvironment(tool.runtime_bin),
+        );
+        command.execution_lock = tool.execution_lock;
+        command
     }
 
     /// Adds or updates environment variables that the command will use
@@ -107,6 +126,9 @@ impl ToolCommand {
 
     /// Runs the command, returning the `ExitStatus` if it successfully launches
     pub fn execute(mut self, session: &mut Session) -> Fallible<ExitStatus> {
+        // The shim waits for the child, keeping its files available throughout
+        // execution without holding the global installation lock.
+        let _execution_lock = self.execution_lock.take();
         let (path, on_failure) = match self.kind {
             ToolKind::Node => super::node::execution_context(self.platform, session)?,
             ToolKind::Npm => super::npm::execution_context(self.platform, session)?,

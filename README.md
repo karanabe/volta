@@ -82,6 +82,8 @@ prettier --version
 ```
 
 Tools get their own environments; Volta installs the pnpm backend automatically.
+Reinstalling or upgrading a tool keeps its previous environment available to
+processes already running through Volta. New processes use the updated tool.
 Run `volta tool --help` for upgrades, removal, and other tool commands.
 
 ## More information

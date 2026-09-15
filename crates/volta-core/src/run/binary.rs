@@ -36,13 +36,7 @@ pub(super) fn command(exe: &OsStr, args: &[OsString], session: &mut Session) -> 
             )
             .into())
         }
-        BinaryLocation::Isolated(tool) => Ok(ToolCommand::new(
-            tool.path,
-            args,
-            None,
-            ToolKind::ToolEnvironment(tool.runtime_bin),
-        )
-        .into()),
+        BinaryLocation::Isolated(tool) => Ok(ToolCommand::isolated(tool, args).into()),
         BinaryLocation::Legacy(tool) => {
             let mut command = ToolCommand::new(
                 tool.bin_path,

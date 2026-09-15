@@ -3,6 +3,10 @@
 //! pnpm owns dependency resolution, its content-addressed store, and the
 //! `node_modules` link topology. Volta owns the immutable environment receipt,
 //! exact Node and pnpm selections, command registration, and atomic publish.
+//! Launchers hold shared per-environment locks until their children exit.
+//! Successful updates collect superseded environments only with an exclusive
+//! lock; environments without lock files predate execution tracking and remain
+//! available until explicit uninstall.
 
 use std::fs::{self, File};
 use std::io::Read;
@@ -10,6 +14,7 @@ use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 
+use fs2::FileExt;
 use log::{debug, info, warn};
 use node_semver::Version;
 use sha2::{Digest, Sha256};
@@ -40,6 +45,8 @@ mod manifest;
 mod registry;
 
 pub use manifest::InstalledTool;
+
+const EXECUTION_LOCK: &str = "volta-tool.lock";
 
 const RESERVED_COMMANDS: &[&str] = &[
     "node",
@@ -94,6 +101,7 @@ pub struct InstallOptions {
 pub(crate) struct ResolvedToolCommand {
     pub(crate) path: PathBuf,
     pub(crate) runtime_bin: PathBuf,
+    pub(crate) execution_lock: Option<File>,
 }
 
 /// A registry lookup that has not loaded or validated its environment yet.
@@ -108,19 +116,41 @@ impl ToolCommandRegistration {
         &self.package
     }
 
-    pub(crate) fn resolve(self) -> Fallible<ResolvedToolCommand> {
-        ToolEnvironment::load(&self.package, &self.installation)?.resolve(&self.command)
+    pub(crate) fn resolve(mut self) -> Fallible<ResolvedToolCommand> {
+        loop {
+            match ToolEnvironment::load(&self.package, &self.installation)
+                .and_then(|environment| environment.resolve(&self.command))
+            {
+                Ok(resolved) => return Ok(resolved),
+                Err(error) => {
+                    // Publication can supersede and collect this generation between
+                    // registry lookup and acquiring its execution lock. Retry only
+                    // when the command registration has actually changed.
+                    match lookup_command(&self.command)? {
+                        Some(current)
+                            if current.package != self.package
+                                || current.installation != self.installation =>
+                        {
+                            self = current;
+                        }
+                        _ => return Err(error),
+                    }
+                }
+            }
+        }
     }
 }
 
 struct ToolEnvironment {
     root: PathBuf,
     manifest: ToolManifest,
+    execution_lock: Option<File>,
 }
 
 impl ToolEnvironment {
     fn load(package: &str, installation: &str) -> Fallible<Self> {
-        let environment = Self::load_receipt(package, installation)?;
+        let mut environment = Self::load_receipt(package, installation)?;
+        environment.execution_lock = lock_for_execution(&environment.root)?;
         validate_lockfile(&environment.manifest, &environment.root)?;
         validate_executable_files(&environment.manifest, &environment.root)?;
         validate_runtime_reference(&environment.manifest, &environment.root)?;
@@ -140,7 +170,11 @@ impl ToolEnvironment {
             ));
         }
         validate_installation_id(&manifest)?;
-        Ok(Self { root, manifest })
+        Ok(Self {
+            root,
+            manifest,
+            execution_lock: None,
+        })
     }
 
     fn runtime_available(&self) -> Fallible<bool> {
@@ -169,6 +203,7 @@ impl ToolEnvironment {
         Ok(ResolvedToolCommand {
             path: self.root.join(&executable.path),
             runtime_bin: self.runtime_bin(),
+            execution_lock: self.execution_lock,
         })
     }
 
@@ -343,6 +378,8 @@ fn install_resolved(
     };
     manifest.installation_id = installation_id(&manifest)?;
     manifest.write(staging.path())?;
+    let lock_path = staging.path().join(EXECUTION_LOCK);
+    File::create(&lock_path).map_err(|_| environment_metadata_error("create", &lock_path))?;
 
     publish_and_register(
         spec.name(),
@@ -365,10 +402,6 @@ fn publish_and_register(
     let home = volta_home()?;
     let final_dir = home.tool_installation_dir(package, &manifest.installation_id);
     publish_environment(staging, &final_dir)?;
-    let old_installation = registry
-        .tools
-        .get(package)
-        .map(|registered| registered.installation.clone());
     let old_commands = registry
         .tools
         .get(package)
@@ -426,17 +459,8 @@ fn publish_and_register(
     }
 
     remove_stale_shims(&old_commands, &command_names);
-    if let Some(old) = old_installation {
-        if old != manifest.installation_id {
-            let old_dir = home.tool_installation_dir(package, &old);
-            if let Err(error) = remove_environment(&old_dir) {
-                warn!(
-                    "Unable to remove superseded tool environment at {}: {}",
-                    old_dir.display(),
-                    error
-                );
-            }
-        }
+    if let Err(error) = collect_unused_environments(package, &manifest.installation_id) {
+        warn!("Unable to collect superseded tool environments: {}", error);
     }
 
     for command in &command_names {
@@ -452,6 +476,7 @@ fn publish_and_register(
     let environment = ToolEnvironment {
         root: final_dir,
         manifest,
+        execution_lock: None,
     };
     Ok(InstalledTool::from_manifest(
         &environment.manifest,
@@ -1025,6 +1050,70 @@ fn remove_environment(path: &Path) -> Fallible<()> {
     remove_dir_if_exists(path)
 }
 
+fn lock_for_execution(root: &Path) -> Fallible<Option<File>> {
+    let path = root.join(EXECUTION_LOCK);
+    match File::open(&path) {
+        Ok(file) => {
+            FileExt::lock_shared(&file).map_err(|_| environment_metadata_error("lock", &path))?;
+            Ok(Some(file))
+        }
+        // Older installations were launched without locks. Keep those
+        // environments until explicit uninstall, including their running tools.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(environment_metadata_error("open", &path)),
+    }
+}
+
+fn collect_unused_environments(package: &str, current: &str) -> Fallible<()> {
+    let current_dir = volta_home()?.tool_installation_dir(package, current);
+    let installations = current_dir.parent().expect("installation has a parent");
+    let entries = fs::read_dir(installations)
+        .map_err(|_| environment_metadata_error("inspect", installations))?;
+    for entry in entries {
+        let entry = entry.map_err(|_| environment_metadata_error("inspect", installations))?;
+        let path = entry.path();
+        let name = entry.file_name();
+        if path == current_dir
+            || !entry
+                .file_type()
+                .map_err(|_| environment_metadata_error("inspect", &path))?
+                .is_dir()
+            || name
+                .to_str()
+                .is_none_or(|name| validate_registry_reference(package, name).is_err())
+        {
+            continue;
+        }
+        if let Err(error) = remove_unused_environment(&path) {
+            warn!(
+                "Unable to remove superseded tool environment at {}: {}",
+                path.display(),
+                error
+            );
+        }
+    }
+    Ok(())
+}
+
+fn remove_unused_environment(root: &Path) -> Fallible<()> {
+    let path = root.join(EXECUTION_LOCK);
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(environment_metadata_error("open", &path)),
+    };
+    match FileExt::try_lock_exclusive(&file) {
+        // Hold the exclusive lock throughout deletion. A launcher that already
+        // read the old registration will retry against the current registry.
+        Ok(()) => remove_environment(root),
+        Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
+            debug!("Keeping running tool environment at {}", root.display());
+            Ok(())
+        }
+        Err(_) => Err(environment_metadata_error("lock", &path)),
+    }
+}
+
 #[cfg(windows)]
 fn make_tree_writable(path: &Path) -> Fallible<()> {
     if !path.exists() {
@@ -1096,7 +1185,12 @@ fn resolve_registered_command(
     command: &str,
     registered: &RegisteredCommand,
 ) -> Fallible<ResolvedToolCommand> {
-    ToolEnvironment::load(&registered.package, &registered.installation)?.resolve(command)
+    ToolCommandRegistration {
+        command: command.to_owned(),
+        package: registered.package.clone(),
+        installation: registered.installation.clone(),
+    }
+    .resolve()
 }
 
 fn validate_registry_reference(package: &str, installation: &str) -> Fallible<()> {
