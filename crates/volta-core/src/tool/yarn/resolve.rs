@@ -80,14 +80,14 @@ fn fetch_yarn_index(package: &str) -> Fallible<(String, PackageIndex)> {
 
 fn resolve_custom_tag(tag: String) -> Fallible<Version> {
     // first try yarn2+, which uses "@yarnpkg/cli-dist" instead of "yarn"
-    if let Ok((url, mut index)) = fetch_yarn_index("@yarnpkg/cli-dist") {
-        if let Some(version) = index.tags.remove(&tag) {
-            debug!("Found yarn@{} matching tag '{}' from {}", version, tag, url);
-            if version.major == 2 {
-                return Err(ErrorKind::Yarn2NotSupported.into());
-            }
-            return Ok(version);
+    if let Ok((url, mut index)) = fetch_yarn_index("@yarnpkg/cli-dist")
+        && let Some(version) = index.tags.remove(&tag)
+    {
+        debug!("Found yarn@{} matching tag '{}' from {}", version, tag, url);
+        if version.major == 2 {
+            return Err(ErrorKind::Yarn2NotSupported.into());
         }
+        return Ok(version);
     }
     debug!(
         "Did not find yarn matching tag '{}' from @yarnpkg/cli-dist",

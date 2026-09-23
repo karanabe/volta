@@ -79,10 +79,10 @@ pub fn find_unpack_dir(in_dir: &Path) -> Fallible<PathBuf> {
         .collect();
 
     // if there is only one directory, return that
-    if let [(entry, metadata)] = dirs.as_slice() {
-        if metadata.is_dir() {
-            return Ok(entry.path());
-        }
+    if let [(entry, metadata)] = dirs.as_slice()
+        && metadata.is_dir()
+    {
+        return Ok(entry.path());
     }
     // there is more than just a single directory here, something is wrong
     Err(ErrorKind::PackageUnpackError.into())

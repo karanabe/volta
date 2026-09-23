@@ -241,6 +241,66 @@ const NPM_VERSION_INFO: &str = r#"
 const VOLTA_LOGLEVEL: &str = "VOLTA_LOGLEVEL";
 
 #[test]
+fn recursive_shims_do_not_re_evaluate_the_platform() {
+    let s = sandbox()
+        .shim("node")
+        .shim("npx")
+        .shim("yarnpkg")
+        .package_json(&package_json_with_pinned_node("10.99.1040"))
+        .env("_VOLTA_TOOL_RECURSION", "1")
+        .env(VOLTA_LOGLEVEL, "debug")
+        .build();
+
+    // The sandbox PATH contains only shims. Recursion must bypass the project
+    // and remove those shims, failing without a download or another shim call.
+    // Windows launches cmd.exe successfully, which then reports the missing tool.
+    let status = if cfg!(windows) {
+        1
+    } else {
+        ExitCode::ExecutionFailure as i32
+    };
+    for command in ["node", "npm", "npx", "pnpm", "yarn", "yarnpkg"] {
+        assert_that!(
+            s.exec_shim(command, "--version"),
+            execs().with_status(status).with_stderr_contains(
+                "[..]Could not find Volta-managed platform, delegating to system"
+            )
+        );
+    }
+}
+
+#[test]
+fn explicit_runs_re_evaluate_the_platform_inside_a_shim() {
+    let s = sandbox()
+        .node_available_versions(NODE_VERSION_INFO)
+        .distro_mocks::<NodeFixture>(&NODE_VERSION_FIXTURES)
+        .npm_available_versions(NPM_VERSION_INFO)
+        .distro_mocks::<NpmFixture>(&NPM_VERSION_FIXTURES)
+        .pnpm_available_versions(PNPM_VERSION_INFO)
+        .distro_mocks::<PnpmFixture>(&PNPM_VERSION_FIXTURES)
+        .yarn_1_available_versions(YARN_1_VERSION_INFO)
+        .distro_mocks::<Yarn1Fixture>(&YARN_1_VERSION_FIXTURES)
+        .package_json(
+            r#"{"name":"test-package","volta":{"node":"10.99.1040","npm":"8.1.5","pnpm":"7.7.1","yarn":"1.7.71"}}"#,
+        )
+        .env("_VOLTA_TOOL_RECURSION", "1")
+        .env(VOLTA_LOGLEVEL, "debug")
+        .build();
+
+    for command in ["node", "npm", "npx", "pnpm", "yarn", "yarnpkg"] {
+        assert_that!(
+            s.volta(&format!("run {command} --version")),
+            execs()
+                .with_status(ExitCode::Success as i32)
+                .with_stderr_contains("[..]Node: 10.99.1040 from project configuration")
+                .with_stderr_contains("[..]npm: 8.1.5 from project configuration")
+                .with_stderr_contains("[..]pnpm: 7.7.1 from project configuration")
+                .with_stderr_contains("[..]Yarn: 1.7.71 from project configuration")
+        );
+    }
+}
+
+#[test]
 fn command_line_node() {
     let s = sandbox()
         .node_available_versions(NODE_VERSION_INFO)

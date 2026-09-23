@@ -14,6 +14,10 @@ impl System {
     /// executables.
     pub fn path() -> Fallible<OsString> {
         let old_path = envoy::path().unwrap_or_else(|| envoy::Var::from(""));
+        Self::path_from(old_path)
+    }
+
+    pub(super) fn path_from(old_path: envoy::Var) -> Fallible<OsString> {
         let mut new_path = old_path.split();
 
         for remove_path in env_paths()? {

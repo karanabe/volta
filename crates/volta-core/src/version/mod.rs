@@ -61,12 +61,12 @@ impl FromStr for VersionSpec {
     type Err = VoltaError;
 
     fn from_str(s: &str) -> Fallible<Self> {
-        if let Ok(version) = parse_version(s) {
-            Ok(VersionSpec::Exact(version))
-        } else if let Ok(req) = parse_requirements(s) {
-            Ok(VersionSpec::Semver(req))
-        } else {
-            s.parse().map(VersionSpec::Tag)
+        match parse_version(s) {
+            Ok(version) => Ok(VersionSpec::Exact(version)),
+            _ => match parse_requirements(s) {
+                Ok(req) => Ok(VersionSpec::Semver(req)),
+                _ => s.parse().map(VersionSpec::Tag),
+            },
         }
     }
 }

@@ -6,14 +6,6 @@ use node_semver::Version;
 #[cfg(windows)]
 use std::path::PathBuf;
 
-// Since unit tests are run in parallel, tests that modify the PATH environment variable are subject to race conditions
-// To prevent that, ensure that all tests that rely on PATH are run in serial by adding them to this meta-test
-#[test]
-fn test_paths() {
-    test_image_path();
-    test_system_path();
-}
-
 #[cfg(unix)]
 fn build_test_path() -> String {
     format!(
@@ -36,13 +28,13 @@ fn build_test_path() -> String {
         .expect("Could not create path containing shim dir")
 }
 
+#[test]
 fn test_image_path() {
     #[cfg(unix)]
     let path_delimiter = ":";
     #[cfg(windows)]
     let path_delimiter = ";";
     let path = build_test_path();
-    std::env::set_var("PATH", &path);
 
     let node_bin = volta_home().unwrap().node_image_bin_dir("1.2.3");
     let expected_node_bin = node_bin.to_str().unwrap();
@@ -69,7 +61,11 @@ fn test_image_path() {
     };
 
     assert_eq!(
-        only_node.path().unwrap().into_string().unwrap(),
+        only_node
+            .path_from(envoy::Var::from(path.as_str()))
+            .unwrap()
+            .into_string()
+            .unwrap(),
         [expected_node_bin, &path].join(path_delimiter)
     );
 
@@ -81,7 +77,11 @@ fn test_image_path() {
     };
 
     assert_eq!(
-        node_npm.path().unwrap().into_string().unwrap(),
+        node_npm
+            .path_from(envoy::Var::from(path.as_str()))
+            .unwrap()
+            .into_string()
+            .unwrap(),
         [expected_npm_bin, expected_node_bin, &path].join(path_delimiter)
     );
 
@@ -93,7 +93,11 @@ fn test_image_path() {
     };
 
     assert_eq!(
-        node_pnpm.path().unwrap().into_string().unwrap(),
+        node_pnpm
+            .path_from(envoy::Var::from(path.as_str()))
+            .unwrap()
+            .into_string()
+            .unwrap(),
         [expected_pnpm_bin, expected_node_bin, &path].join(path_delimiter)
     );
 
@@ -105,7 +109,11 @@ fn test_image_path() {
     };
 
     assert_eq!(
-        node_yarn.path().unwrap().into_string().unwrap(),
+        node_yarn
+            .path_from(envoy::Var::from(path.as_str()))
+            .unwrap()
+            .into_string()
+            .unwrap(),
         [expected_yarn_bin, expected_node_bin, &path].join(path_delimiter)
     );
 
@@ -117,7 +125,11 @@ fn test_image_path() {
     };
 
     assert_eq!(
-        node_npm_pnpm.path().unwrap().into_string().unwrap(),
+        node_npm_pnpm
+            .path_from(envoy::Var::from(path.as_str()))
+            .unwrap()
+            .into_string()
+            .unwrap(),
         [
             expected_npm_bin,
             expected_pnpm_bin,
@@ -135,7 +147,11 @@ fn test_image_path() {
     };
 
     assert_eq!(
-        node_npm_yarn.path().unwrap().into_string().unwrap(),
+        node_npm_yarn
+            .path_from(envoy::Var::from(path.as_str()))
+            .unwrap()
+            .into_string()
+            .unwrap(),
         [
             expected_npm_bin,
             expected_yarn_bin,
@@ -146,9 +162,9 @@ fn test_image_path() {
     );
 }
 
+#[test]
 fn test_system_path() {
     let path = build_test_path();
-    std::env::set_var("PATH", path);
 
     #[cfg(unix)]
     let expected_path = String::from("/usr/bin:/bin");
@@ -156,7 +172,10 @@ fn test_system_path() {
     let expected_path = String::from("C:\\\\somebin;D:\\\\ProbramFlies");
 
     assert_eq!(
-        System::path().unwrap().into_string().unwrap(),
+        System::path_from(envoy::Var::from(path))
+            .unwrap()
+            .into_string()
+            .unwrap(),
         expected_path
     );
 }

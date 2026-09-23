@@ -65,10 +65,10 @@ impl Tool for Yarn {
         info_installed(&self);
         check_shim_reachable("yarn");
 
-        if let Ok(Some(project)) = session.project_platform() {
-            if let Some(yarn) = &project.yarn {
-                info_project_version(tool_version("yarn", yarn), &self);
-            }
+        if let Ok(Some(project)) = session.project_platform()
+            && let Some(yarn) = &project.yarn
+        {
+            info_project_version(tool_version("yarn", yarn), &self);
         }
         Ok(())
     }

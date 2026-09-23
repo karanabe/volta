@@ -50,7 +50,10 @@ impl Image {
     /// for the given versions instead of in the Volta shim directory.
     pub fn path(&self) -> Fallible<OsString> {
         let old_path = envoy::path().unwrap_or_else(|| envoy::Var::from(""));
+        self.path_from(old_path)
+    }
 
+    pub(super) fn path_from(&self, old_path: envoy::Var) -> Fallible<OsString> {
         old_path
             .split()
             .prefix(self.bins()?)

@@ -66,10 +66,10 @@ impl Tool for Pnpm {
         info_installed(&self);
         check_shim_reachable("pnpm");
 
-        if let Ok(Some(project)) = session.project_platform() {
-            if let Some(pnpm) = &project.pnpm {
-                info_project_version(tool_version("pnpm", pnpm), &self);
-            }
+        if let Ok(Some(project)) = session.project_platform()
+            && let Some(pnpm) = &project.pnpm
+        {
+            info_project_version(tool_version("pnpm", pnpm), &self);
         }
         Ok(())
     }

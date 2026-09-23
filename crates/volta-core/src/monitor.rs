@@ -16,12 +16,11 @@ pub fn send_events(command: &str, events: &[Event]) {
         Ok(events_json) => {
             let tempfile_path = env::var_os("VOLTA_WRITE_EVENTS_FILE")
                 .and_then(|_| write_events_file(events_json.clone()));
-            if let Some(ref mut child_process) = spawn_process(command, tempfile_path) {
-                if let Some(ref mut p_stdin) = child_process.stdin.as_mut() {
-                    if let Err(error) = writeln!(p_stdin, "{}", events_json) {
-                        debug!("Could not write events to executable stdin: {:?}", error);
-                    }
-                }
+            if let Some(ref mut child_process) = spawn_process(command, tempfile_path)
+                && let Some(ref mut p_stdin) = child_process.stdin.as_mut()
+                && let Err(error) = writeln!(p_stdin, "{}", events_json)
+            {
+                debug!("Could not write events to executable stdin: {:?}", error);
             }
         }
         Err(error) => {

@@ -29,8 +29,8 @@ mod yarn;
 /// Shims should only be called recursively when the environment is misconfigured, so this will
 /// prevent infinite recursion as the pass-through logic removes the shim directory from the PATH.
 ///
-/// Note: This is explicitly _removed_ when calling a command through `volta run`, as that will
-/// never happen due to the Volta environment.
+/// `volta run` ignores this marker when selecting its platform so that explicit
+/// invocations re-evaluate the context even when called from a Node script.
 const RECURSION_ENV_VAR: &str = "_VOLTA_TOOL_RECURSION";
 const VOLTA_BYPASS: &str = "VOLTA_BYPASS";
 
@@ -40,7 +40,8 @@ pub fn execute_shim(session: &mut Session) -> Fallible<ExitStatus> {
     let exe = get_tool_name(&mut native_args)?;
     let args: Vec<_> = native_args.collect();
 
-    get_executor(&exe, &args, session)?.execute(session)
+    let recursive = env::var_os(RECURSION_ENV_VAR).is_some();
+    get_executor(&exe, &args, recursive, session)?.execute(session)
 }
 
 /// Execute a tool with the provided arguments
@@ -55,11 +56,8 @@ where
     K: AsRef<OsStr>,
     V: AsRef<OsStr>,
 {
-    // Remove the recursion environment variable so that the context is correctly re-evaluated
-    // when calling `volta run` (even when called from a Node script)
-    env::remove_var(RECURSION_ENV_VAR);
-
-    let mut runner = get_executor(exe, args, session)?;
+    // Explicit runs always re-evaluate the platform, without mutating the process environment.
+    let mut runner = get_executor(exe, args, false, session)?;
     runner.cli_platform(cli);
     runner.envs(envs);
 
@@ -83,6 +81,7 @@ pub fn execute_tool_environment(
 fn get_executor(
     exe: &OsStr,
     args: &[OsString],
+    recursive: bool,
     session: &mut Session,
 ) -> Fallible<executor::Executor> {
     if env::var_os(VOLTA_BYPASS).is_some() {
@@ -96,11 +95,11 @@ fn get_executor(
     } else {
         match exe.to_str() {
             Some("volta-shim") => Err(ErrorKind::RunShimDirectly.into()),
-            Some("node") => node::command(args, session),
-            Some("npm") => npm::command(args, session),
-            Some("npx") => npx::command(args, session),
-            Some("pnpm") => pnpm::command(args, session),
-            Some("yarn") | Some("yarnpkg") => yarn::command(args, session),
+            Some("node") => node::command(args, recursive, session),
+            Some("npm") => npm::command(args, recursive, session),
+            Some("npx") => npx::command(args, recursive, session),
+            Some("pnpm") => pnpm::command(args, recursive, session),
+            Some("yarn") | Some("yarnpkg") => yarn::command(args, recursive, session),
             _ => binary::command(exe, args, session),
         }
     }

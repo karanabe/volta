@@ -133,11 +133,11 @@ impl Spec {
 impl Display for Spec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            Spec::Node(ref version) => tool_version("node", version),
-            Spec::Npm(ref version) => tool_version("npm", version),
-            Spec::Pnpm(ref version) => tool_version("pnpm", version),
-            Spec::Yarn(ref version) => tool_version("yarn", version),
-            Spec::Package(ref name, ref version) => tool_version(name, version),
+            Spec::Node(version) => tool_version("node", version),
+            Spec::Npm(version) => tool_version("npm", version),
+            Spec::Pnpm(version) => tool_version("pnpm", version),
+            Spec::Yarn(version) => tool_version("yarn", version),
+            Spec::Package(name, version) => tool_version(name, version),
         };
         f.write_str(&s)
     }

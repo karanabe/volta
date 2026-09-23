@@ -2,7 +2,7 @@
 
 #[macro_export]
 macro_rules! ok_or_panic {
-    { $e:expr } => {
+    { $e:expr_2021 } => {
         match $e {
             Ok(x) => x,
             Err(err) => panic!("{} failed with {}", stringify!($e), err),

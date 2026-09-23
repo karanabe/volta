@@ -1,8 +1,7 @@
-use std::env;
 use std::ffi::OsString;
 
 use super::executor::{Executor, ToolCommand, ToolKind};
-use super::{debug_active_image, debug_no_platform, RECURSION_ENV_VAR};
+use super::{debug_active_image, debug_no_platform};
 use crate::error::{ErrorKind, Fallible};
 use crate::platform::{Platform, System};
 use crate::session::{ActivityKind, Session};
@@ -18,12 +17,17 @@ static REQUIRED_NPM_VERSION: Lazy<Version> = Lazy::new(|| Version {
 });
 
 /// Build a `ToolCommand` for npx
-pub(super) fn command(args: &[OsString], session: &mut Session) -> Fallible<Executor> {
+pub(super) fn command(
+    args: &[OsString],
+    recursive: bool,
+    session: &mut Session,
+) -> Fallible<Executor> {
     session.add_event_start(ActivityKind::Npx);
     // Don't re-evaluate the context if this is a recursive call
-    let platform = match env::var_os(RECURSION_ENV_VAR) {
-        Some(_) => None,
-        None => Platform::current(session)?,
+    let platform = if recursive {
+        None
+    } else {
+        Platform::current(session)?
     };
 
     Ok(ToolCommand::new("npx", args, platform, ToolKind::Npx).into())

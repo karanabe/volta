@@ -7,8 +7,6 @@ use node_semver::Version;
 
 mod image;
 mod system;
-// Note: The tests get their own module because we need them to run as a single unit to prevent
-// clobbering environment variable changes
 #[cfg(test)]
 mod tests;
 

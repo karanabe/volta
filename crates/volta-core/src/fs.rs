@@ -76,7 +76,9 @@ pub fn read_file<P: AsRef<Path>>(path: P) -> io::Result<Option<String>> {
 /// Note that this function allocates an intermediate vector of directory entries to
 /// construct the iterator from, so if a directory is expected to be very large, it
 /// will allocate temporary data proportional to the number of entries.
-pub fn read_dir_eager(dir: &Path) -> io::Result<impl Iterator<Item = (DirEntry, Metadata)>> {
+pub fn read_dir_eager(
+    dir: &Path,
+) -> io::Result<impl Iterator<Item = (DirEntry, Metadata)> + use<>> {
     let entries = read_dir(dir)?;
     let vec = entries
         .map(|entry| {

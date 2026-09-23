@@ -1036,10 +1036,11 @@ fn rollback_shims(commands: &[String]) {
 
 fn remove_stale_shims(old: &[String], new: &[String]) {
     for command in old {
-        if !new.contains(command) && !legacy_bin_exists(command) {
-            if let Err(error) = shim::delete(command) {
-                warn!("Unable to remove stale shim '{}': {}", command, error);
-            }
+        if !new.contains(command)
+            && !legacy_bin_exists(command)
+            && let Err(error) = shim::delete(command)
+        {
+            warn!("Unable to remove stale shim '{}': {}", command, error);
         }
     }
 }

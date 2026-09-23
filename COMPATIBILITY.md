@@ -21,3 +21,8 @@ Release builds depend on the test workflow. Producing an artifact does not
 prove compatibility with every older OS version or with every Node/package
 manager version. The exact Rust toolchain is recorded in
 [rust-toolchain.toml](rust-toolchain.toml).
+
+All workspace packages use Rust Edition 2024. Build and test with the pinned
+toolchain; this fork does not declare or test a separate minimum supported Rust
+version. [rustfmt.toml](rustfmt.toml) retains the existing formatting style
+independently of the language edition.

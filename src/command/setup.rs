@@ -100,10 +100,10 @@ mod os {
         let mut profiles = vec![home_dir.join(".profile")];
 
         // PROFILE environment variable, if set
-        if let Ok(profile_env) = env::var("PROFILE") {
-            if !profile_env.is_empty() {
-                profiles.push(profile_env.into());
-            }
+        if let Ok(profile_env) = env::var("PROFILE")
+            && !profile_env.is_empty()
+        {
+            profiles.push(profile_env.into());
         }
 
         add_zsh_profile(&home_dir, &shell, &mut profiles);
@@ -193,12 +193,12 @@ If you run into problems running Volta, create {} and run `volta setup` again.",
     }
 
     fn format_home(volta_home: &Path) -> String {
-        if let Some(home_dir) = env::var_os("HOME") {
-            if let Ok(suffix) = volta_home.strip_prefix(home_dir) {
-                // If the HOME environment variable is set _and_ the proposed VOLTA_HOME starts
-                // with that value, use $HOME when writing the profile scripts
-                return format!("$HOME/{}", suffix.display());
-            }
+        if let Some(home_dir) = env::var_os("HOME")
+            && let Ok(suffix) = volta_home.strip_prefix(home_dir)
+        {
+            // If the HOME environment variable is set _and_ the proposed VOLTA_HOME starts
+            // with that value, use $HOME when writing the profile scripts
+            return format!("$HOME/{}", suffix.display());
         }
 
         volta_home.display().to_string()

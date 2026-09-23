@@ -66,10 +66,10 @@ impl Tool for Npm {
         info_installed(&self);
         check_shim_reachable("npm");
 
-        if let Ok(Some(project)) = session.project_platform() {
-            if let Some(npm) = &project.npm {
-                info_project_version(tool_version("npm", npm), &self);
-            }
+        if let Ok(Some(project)) = session.project_platform()
+            && let Some(npm) = &project.npm
+        {
+            info_project_version(tool_version("npm", npm), &self);
         }
         Ok(())
     }

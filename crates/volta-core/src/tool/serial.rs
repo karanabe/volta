@@ -183,7 +183,7 @@ mod tests {
 
         /// Convenience macro for generating the <tool>@<version> string.
         macro_rules! versioned_tool {
-            ($tool:expr, $version:expr) => {
+            ($tool:expr_2021, $version:expr_2021) => {
                 format!("{}@{}", $tool, $version)
             };
         }
