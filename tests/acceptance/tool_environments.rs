@@ -690,7 +690,12 @@ fn updates_keep_running_tools_usable_and_collect_them_after_exit() {
                 })
                 .collect::<Vec<_>>();
 
-            assert_that!(s.volta(update), execs().with_status(0));
+            assert_that!(
+                s.volta(update).env("VOLTA_LOGLEVEL", "warn"),
+                execs().with_status(0).with_stderr_contains(
+                    "[..]An older alpha process is still running. Restart it, including any background services, to use the upgraded version."
+                )
+            );
             assert_ne!(old_environment, installed_environment("alpha"));
             assert!(
                 old_environment.exists(),

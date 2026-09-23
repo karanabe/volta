@@ -1089,7 +1089,7 @@ fn collect_unused_environments(package: &str, current: &str) -> Fallible<()> {
         {
             continue;
         }
-        if let Err(error) = remove_unused_environment(&path) {
+        if let Err(error) = remove_unused_environment(&path, package) {
             warn!(
                 "Unable to remove superseded tool environment at {}: {}",
                 path.display(),
@@ -1100,7 +1100,7 @@ fn collect_unused_environments(package: &str, current: &str) -> Fallible<()> {
     Ok(())
 }
 
-fn remove_unused_environment(root: &Path) -> Fallible<()> {
+fn remove_unused_environment(root: &Path, package: &str) -> Fallible<()> {
     let path = root.join(EXECUTION_LOCK);
     let file = match File::open(&path) {
         Ok(file) => file,
@@ -1113,6 +1113,10 @@ fn remove_unused_environment(root: &Path) -> Fallible<()> {
         Ok(()) => remove_environment(root),
         Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
             debug!("Keeping running tool environment at {}", root.display());
+            warn!(
+                "An older {} process is still running. Restart it, including any background services, to use the upgraded version.",
+                package
+            );
             Ok(())
         }
         Err(_) => Err(environment_metadata_error("lock", &path)),

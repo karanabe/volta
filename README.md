@@ -96,6 +96,8 @@ holds back a release because of pnpm's default 24-hour delay.
 
 Reinstalling or upgrading a tool keeps its previous environment available to
 processes already running through Volta. New processes use the updated tool.
+Volta does not restart background processes started by a tool. Stop or restart
+them after upgrading so that all components use the new version.
 Run `volta tool --help` for upgrades, removal, and other tool commands.
 
 ## More information
