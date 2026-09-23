@@ -238,12 +238,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release_info.outputs.tag }}
+          VERSION: ${{ steps.release_info.outputs.version }}
         run: |
           set -euo pipefail
+          if [[ "$VERSION" == *-* ]]; then
+            release_flags=(--prerelease --latest=false)
+          else
+            release_flags=(--prerelease=false --latest)
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
-            gh release edit "$TAG" --draft=false --latest
+            gh release edit "$TAG" --draft=false "${release_flags[@]}"
           else
             gh release create "$TAG" dist/* --verify-tag --generate-notes \
-              --title "$TAG" --latest
+              --title "$TAG" "${release_flags[@]}"
           fi

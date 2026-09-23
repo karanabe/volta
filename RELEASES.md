@@ -1,9 +1,13 @@
 # Unreleased
 
+# Version 3.0.0-rc.1
+
+- Migrate all workspace packages to Rust Edition 2024, preserving explicit `volta run` platform selection and recursive shim handling without modifying the process environment
 - 🚨 **BREAKING:** `volta install <package>` no longer installs arbitrary JavaScript CLI packages; use `volta tool install <package>` instead
 - Add `volta tool install`, `upgrade`, `uninstall`, `list`, `which`, and `run`
 - 🚨 **BREAKING:** Use pnpm exclusively to materialize isolated tool environments; schema-v1 npm environments are not supported
 - Support pnpm 12 by passing linker settings through pnpm configuration instead of removed CLI flags
+- Disable pnpm's minimum release age for isolated tool installs and upgrades, so newly published versions are eligible immediately instead of being silently held back for 24 hours. Exact package requests remain fixed.
 - Store an exact Node reference, exact pnpm installer version, pnpm lockfile integrity, and build permissions in every schema-v2 tool receipt
 - Add `--node` and repeatable `--allow-build` options to `volta tool install`, plus `--node` and `--all` to `volta tool upgrade`
 - Implement inventory removal for Node, npm, pnpm, and Yarn; referenced Node versions require `--force`, which leaves affected tools visibly broken
