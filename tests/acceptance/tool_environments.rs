@@ -193,7 +193,7 @@ exit 0
 
 fn test_sandbox() -> Sandbox {
     sandbox()
-        .layout_file("v4")
+        .layout_file("v5")
         .platform(PLATFORM)
         .setup_node_binary("11.10.1", "6.7.0", NODE)
         .pnpm_available_versions(PNPM_VERSION_INFO)
@@ -459,7 +459,7 @@ fn reports_environment_manifest_tampering() {
 #[test]
 fn project_local_command_keeps_precedence_over_an_isolated_global_tool() {
     let s = sandbox()
-        .layout_file("v4")
+        .layout_file("v5")
         .platform(PLATFORM)
         .package_json(r#"{"name":"project","dependencies":{"alpha":"1.0.0"}}"#)
         .project_bins(vec![PackageBinInfo {
@@ -497,7 +497,7 @@ fn project_local_command_keeps_precedence_over_an_isolated_global_tool() {
 #[test]
 fn defaults_to_global_node_and_allows_an_explicit_tool_runtime() {
     let s = sandbox()
-        .layout_file("v4")
+        .layout_file("v5")
         .platform(PLATFORM)
         .package_json(r#"{"name":"project","volta":{"node":"10.99.1040","npm":"6.7.0"}}"#)
         .setup_node_binary("11.10.1", "6.7.0", NODE)
@@ -530,7 +530,7 @@ fn defaults_to_global_node_and_allows_an_explicit_tool_runtime() {
 #[test]
 fn which_reports_the_yarn_launcher_when_project_commands_delegate_to_yarn() {
     let s = sandbox()
-        .layout_file("v4")
+        .layout_file("v5")
         .platform(PLATFORM)
         .package_json(r#"{"name":"project","dependencies":{"alpha":"1.0.0"},"volta":{"node":"11.10.1","yarn":"1.22.0"}}"#)
         .project_file(".pnp.js", "")
@@ -805,7 +805,7 @@ fn runtime_removal_checks_receipts_even_when_environment_files_are_missing() {
 #[test]
 fn upgrade_all_and_forced_node_removal_have_explicit_results() {
     let s = sandbox()
-        .layout_file("v4")
+        .layout_file("v5")
         .platform(PLATFORM)
         .setup_node_binary("11.10.1", "6.7.0", NODE)
         .setup_node_binary("10.99.1040", "6.7.0", NODE)

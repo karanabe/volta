@@ -37,7 +37,7 @@ echo "{name} args: $@"
 
 fn test_sandbox() -> Sandbox {
     sandbox()
-        .layout_file("v4")
+        .layout_file("v5")
         .platform(PLATFORM)
         .setup_node_binary("11.10.1", "6.7.0", &package_manager_bin("node"))
         .setup_npm_binary("6.7.0", &package_manager_bin("npm"))

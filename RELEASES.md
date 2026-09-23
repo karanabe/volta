@@ -2,6 +2,7 @@
 
 # Version 3.0.0-rc.1
 
+- Introduce layout v5 for isolated tool environments and pnpm stores; migrate existing v4 homes without removing their data
 - Migrate all workspace packages to Rust Edition 2024, preserving explicit `volta run` platform selection and recursive shim handling without modifying the process environment
 - 🚨 **BREAKING:** `volta install <package>` no longer installs arbitrary JavaScript CLI packages; use `volta tool install <package>` instead
 - Add `volta tool install`, `upgrade`, `uninstall`, `list`, `which`, and `run`

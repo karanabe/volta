@@ -2,6 +2,7 @@ use crate::support::sandbox::{sandbox, Sandbox};
 use hamcrest2::assert_that;
 use hamcrest2::prelude::*;
 use test_support::matchers::execs;
+use test_support::paths;
 
 #[test]
 fn empty_volta_home_is_created() {
@@ -30,7 +31,7 @@ fn empty_volta_home_is_created() {
     assert!(Sandbox::path_exists(".volta/tools/user"));
 
     // Layout file should now exist
-    assert!(Sandbox::path_exists(".volta/layout.v4"));
+    assert!(Sandbox::path_exists(".volta/layout.v5"));
 
     // shims should all be created
     // NOTE: this doesn't work in Windows, because the default shims are stored separately
@@ -75,7 +76,7 @@ fn legacy_v0_volta_home_is_upgraded() {
     assert!(!Sandbox::path_exists(".volta/layout.v1"));
     assert!(!Sandbox::path_exists(".volta/layout.v2"));
     assert!(!Sandbox::path_exists(".volta/layout.v3"));
-    assert!(Sandbox::path_exists(".volta/layout.v4"));
+    assert!(Sandbox::path_exists(".volta/layout.v5"));
 
     // shims should all be created
     // NOTE: this doesn't work in Windows, because the default shims are stored separately
@@ -144,7 +145,7 @@ fn tagged_v1_volta_home_is_upgraded() {
     assert!(!Sandbox::path_exists(".volta/layout.v1"));
     assert!(!Sandbox::path_exists(".volta/layout.v2"));
     assert!(!Sandbox::path_exists(".volta/layout.v3"));
-    assert!(Sandbox::path_exists(".volta/layout.v4"));
+    assert!(Sandbox::path_exists(".volta/layout.v5"));
 
     // shims should all be created
     // NOTE: this doesn't work in Windows, because the default shims are stored separately
@@ -209,12 +210,75 @@ fn tagged_v1_to_v2_keeps_migrated_node_images() {
 }
 
 #[test]
-fn current_v4_volta_home_is_unchanged() {
-    let s = sandbox().layout_file("v4").build();
+fn tagged_v4_volta_home_is_upgraded_to_v5() {
+    let s = sandbox()
+        .layout_file("v4")
+        .file(".volta/tools/image/node/legacy/README.md", "keep this")
+        .build();
+
+    assert!(!Sandbox::path_exists(".volta/tools/environments"));
+    assert!(!Sandbox::path_exists(".volta/store"));
+
+    assert_that!(s.volta("--version"), execs().with_status(0));
+
+    assert!(!Sandbox::path_exists(".volta/layout.v4"));
+    assert!(Sandbox::path_exists(".volta/layout.v5"));
+    assert!(Sandbox::path_exists(".volta/tools/environments/installed"));
+    assert!(Sandbox::path_exists(".volta/store/pnpm"));
+    assert!(Sandbox::path_exists(".volta/store/pnpm-home"));
+    assert!(Sandbox::path_exists(
+        ".volta/tools/image/node/legacy/README.md"
+    ));
+}
+
+#[test]
+fn pre_release_v4_tool_data_survives_migration_to_v5() {
+    let s = sandbox()
+        .layout_file("v4")
+        .file(".volta/tools/environments/registry.json", "registry data")
+        .file(
+            ".volta/tools/environments/installed/example/installations/123/receipt.json",
+            "receipt data",
+        )
+        .file(".volta/store/pnpm/store-file", "store data")
+        .build();
+
+    assert_that!(s.volta("--version"), execs().with_status(0));
+
+    assert!(!Sandbox::path_exists(".volta/layout.v4"));
+    assert!(Sandbox::path_exists(".volta/layout.v5"));
+    assert!(Sandbox::path_exists(
+        ".volta/tools/environments/registry.json"
+    ));
+    assert!(Sandbox::path_exists(
+        ".volta/tools/environments/installed/example/installations/123/receipt.json"
+    ));
+    assert!(Sandbox::path_exists(".volta/store/pnpm/store-file"));
+    let home = paths::home().join(".volta");
+    assert_eq!(
+        std::fs::read_to_string(home.join("tools/environments/registry.json")).unwrap(),
+        "registry data"
+    );
+    assert_eq!(
+        std::fs::read_to_string(
+            home.join("tools/environments/installed/example/installations/123/receipt.json")
+        )
+        .unwrap(),
+        "receipt data"
+    );
+    assert_eq!(
+        std::fs::read_to_string(home.join("store/pnpm/store-file")).unwrap(),
+        "store data"
+    );
+}
+
+#[test]
+fn current_v5_volta_home_is_unchanged() {
+    let s = sandbox().layout_file("v5").build();
 
     // directories that are already created by the test framework
     assert!(Sandbox::path_exists(".volta"));
-    assert!(Sandbox::path_exists(".volta/layout.v4"));
+    assert!(Sandbox::path_exists(".volta/layout.v5"));
     assert!(Sandbox::path_exists(".volta/cache/node"));
     assert!(Sandbox::path_exists(".volta/tmp"));
     assert!(Sandbox::path_exists(".volta/tools/inventory/node"));
@@ -225,7 +289,7 @@ fn current_v4_volta_home_is_unchanged() {
 
     // everything should be the same as before running the command
     assert!(Sandbox::path_exists(".volta"));
-    assert!(Sandbox::path_exists(".volta/layout.v4"));
+    assert!(Sandbox::path_exists(".volta/layout.v5"));
     assert!(Sandbox::path_exists(".volta/cache/node"));
     assert!(Sandbox::path_exists(".volta/tmp"));
     assert!(Sandbox::path_exists(".volta/tools/inventory/node"));

@@ -217,7 +217,7 @@ fn uninstall_runtime_and_package_manager_images() {
     let node_version = "11.10.1".parse().expect("valid Node version");
     let node_archive = Node::archive_filename(&node_version);
     let s = sandbox()
-        .layout_file("v4")
+        .layout_file("v5")
         .platform(platform)
         .setup_node_binary("11.10.1", "5.6.7", binary)
         .setup_npm_binary("6.7.0", binary)
