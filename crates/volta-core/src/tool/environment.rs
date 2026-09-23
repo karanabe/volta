@@ -704,6 +704,10 @@ fn run_pnpm_install(
     command.env("pnpm_config_virtual_store_dir", "node_modules/.pnpm");
     command.env("npm_config_enable_global_virtual_store", "false");
     command.env("pnpm_config_enable_global_virtual_store", "false");
+    // Tool installs and upgrades should resolve newly published versions too.
+    // pnpm 11+ otherwise silently holds them back for 24 hours by default.
+    command.env("npm_config_minimum_release_age", "0");
+    command.env("pnpm_config_minimum_release_age", "0");
     command.env("pnpm_config_manage_package_manager_versions", "false");
     command.env("COREPACK_ENABLE_PROJECT_SPEC", "0");
     command.env_remove("npm_config_global");

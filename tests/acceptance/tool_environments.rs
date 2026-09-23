@@ -59,11 +59,18 @@ done
 [ "$pnpm_config_enable_global_virtual_store" = false ] || exit 2
 
 case "$spec" in
-  alpha)
+  alpha|alpha@latest)
     name=alpha
     if [ -f "$store_dir/fail-alpha" ]; then exit 42; fi
     marker="$store_dir/alpha-upgraded"
-    if [ -f "$marker" ]; then version=2.0.0; else version=1.0.0; fi
+    # Model pnpm 11+'s default cooldown: the newly published version is
+    # visible in the registry but held back unless the release age is zero.
+    release_age=${pnpm_config_minimum_release_age:-${npm_config_minimum_release_age:-1440}}
+    if [ -f "$marker" ] && [ "$release_age" = 0 ]; then
+      version=2.0.0
+    else
+      version=1.0.0
+    fi
     mkdir -p "$store_dir"
     : > "$marker"
     if [ -n "$allow_build_esbuild" ]; then
@@ -71,7 +78,7 @@ case "$spec" in
     fi
     command=alpha
     ;;
-  alpha@1)
+  alpha@1|alpha@1.0.0)
     name=alpha
     version=1.0.0
     command=alpha
@@ -546,6 +553,42 @@ fn which_reports_the_yarn_launcher_when_project_commands_delegate_to_yarn() {
         execs()
             .with_status(0)
             .with_stdout_contains("[..]tools/image/yarn/1.22.0/bin/yarn")
+    );
+}
+
+#[test]
+fn installs_newly_published_tools_without_a_release_age_delay() {
+    let s = test_sandbox();
+    let store = test_support::paths::home().join(".volta/store/pnpm");
+    fs::create_dir_all(&store).expect("pnpm store");
+    fs::write(store.join("alpha-upgraded"), "published").expect("new release marker");
+
+    for request in ["alpha", "alpha@latest"] {
+        assert_that!(
+            s.volta(&format!("tool install {request}")),
+            execs().with_status(0)
+        );
+        assert_eq!(installed_manifest("alpha")["package"]["resolved"], "2.0.0");
+        assert_eq!(installed_manifest("alpha")["package"]["requested"], request);
+        assert_that!(
+            s.exec_shim("alpha", "fresh"),
+            execs()
+                .with_status(0)
+                .with_stdout("alpha@2.0.0 args: fresh\n")
+        );
+    }
+}
+
+#[test]
+fn upgrading_an_exact_request_keeps_the_requested_version() {
+    let s = test_sandbox();
+    assert_that!(s.volta("tool install alpha"), execs().with_status(0));
+    assert_that!(s.volta("tool install alpha@1.0.0"), execs().with_status(0));
+    assert_that!(s.volta("tool upgrade alpha"), execs().with_status(0));
+    assert_eq!(installed_manifest("alpha")["package"]["resolved"], "1.0.0");
+    assert_eq!(
+        installed_manifest("alpha")["package"]["requested"],
+        "alpha@1.0.0"
     );
 }
 

@@ -82,6 +82,18 @@ prettier --version
 ```
 
 Tools get their own environments; Volta installs the pnpm backend automatically.
+To update a tool, run `volta tool upgrade <package>` (for example,
+`volta tool upgrade @openai/codex`). Upgrade resolves the original package
+request again: a bare name or `@latest` follows the latest release, while an
+exact version stays fixed. Use `volta tool install <package>@latest` to change
+an existing exact request to follow the latest release.
+
+Tool installs and upgrades disable pnpm's minimum release age in the isolated
+environment, including its dependencies, so newly published versions are
+eligible immediately. This does not change the settings used by pnpm in your
+projects. Clearing the package cache is unnecessary when an older Volta build
+holds back a release because of pnpm's default 24-hour delay.
+
 Reinstalling or upgrading a tool keeps its previous environment available to
 processes already running through Volta. New processes use the updated tool.
 Run `volta tool --help` for upgrades, removal, and other tool commands.
