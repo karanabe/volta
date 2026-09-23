@@ -242,7 +242,9 @@ const VOLTA_LOGLEVEL: &str = "VOLTA_LOGLEVEL";
 
 #[test]
 fn recursive_shims_do_not_re_evaluate_the_platform() {
+    // Mark the current layout so Windows migration leaves these test shims intact.
     let s = sandbox()
+        .layout_file("v4")
         .shim("node")
         .shim("npx")
         .shim("yarnpkg")
